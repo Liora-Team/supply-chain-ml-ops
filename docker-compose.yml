@@ -1,0 +1,19 @@
+# Phase 1: a single inference API service. Phase 2 adds mlflow / postgres / minio here.
+services:
+  api:
+    build: .
+    image: supply-chain-mlops-api:latest
+    container_name: sc-mlops-api
+    ports:
+      - "8000:8000"
+    environment:
+      # Point these at an HF hub id or mounted path to enable the DistilBERT path (Phase 2).
+      DISTILBERT_3CLASS: "${DISTILBERT_3CLASS:-}"
+      DISTILBERT_5CLASS: "${DISTILBERT_5CLASS:-}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+    restart: unless-stopped

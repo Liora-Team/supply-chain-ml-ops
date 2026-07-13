@@ -1,0 +1,26 @@
+# Keep the build context tiny + the image clean.
+.venv/
+.git/
+.github/
+.gstack/
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Not needed by the API image
+tests/
+docs/
+notebooks/
+scripts/
+configs/
+pages/
+app.py
+data/
+requirements.txt
+*.pdf
+*.md
+.env
+.env.*
+.DS_Store
