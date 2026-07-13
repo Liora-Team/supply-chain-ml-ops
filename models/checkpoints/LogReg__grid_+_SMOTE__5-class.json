@@ -1,0 +1,13 @@
+{
+  "model": "LogReg",
+  "variant": "grid + SMOTE",
+  "schema": "5-class",
+  "macro_f1": 0.5532256977565997,
+  "weighted_f1": 0.5752162299658156,
+  "accuracy": 0.5762065186508097,
+  "time_s": 341.1,
+  "best_params": {
+    "model__C": 0.5
+  },
+  "cv_macro_f1": 0.5474937343894574
+}

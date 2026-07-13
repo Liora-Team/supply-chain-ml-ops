@@ -1,0 +1,20 @@
+{
+  "model": "RandomForest",
+  "variant": "halving + cw=balanced",
+  "schema": "3-class",
+  "macro_f1": 0.6611193856480765,
+  "weighted_f1": 0.7315910185816158,
+  "accuracy": 0.7308113812558347,
+  "time_s": 2270.0,
+  "best_params": {
+    "model__max_depth": null,
+    "model__max_features": "log2",
+    "model__min_samples_leaf": 8,
+    "model__n_estimators": 150
+  },
+  "cv_macro_f1": 0.6556583199831303,
+  "pipeline_macro_f1": 0.6489297826065429,
+  "pipeline_weighted_f1": 0.7211600838829293,
+  "pipeline_accuracy": 0.7209887567479807,
+  "pipeline_note": "Bundled Pipeline(tfidf->clf) by scripts/build_pipelines.py"
+}

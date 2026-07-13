@@ -1,0 +1,17 @@
+{
+  "model": "LinearSVC",
+  "variant": "grid + cw=balanced",
+  "schema": "3-class",
+  "macro_f1": 0.6913030654148375,
+  "weighted_f1": 0.7642333758319064,
+  "accuracy": 0.7698989324998985,
+  "time_s": 20.2,
+  "best_params": {
+    "model__C": 0.1
+  },
+  "cv_macro_f1": 0.6871460381100005,
+  "pipeline_macro_f1": 0.6755245425374348,
+  "pipeline_weighted_f1": 0.7511343710204788,
+  "pipeline_accuracy": 0.7571538742541706,
+  "pipeline_note": "Bundled Pipeline(tfidf->clf) by scripts/build_pipelines.py"
+}

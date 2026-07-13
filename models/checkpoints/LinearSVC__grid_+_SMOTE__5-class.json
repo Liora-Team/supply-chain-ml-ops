@@ -1,0 +1,13 @@
+{
+  "model": "LinearSVC",
+  "variant": "grid + SMOTE",
+  "schema": "5-class",
+  "macro_f1": 0.5419589335418161,
+  "weighted_f1": 0.5650982574870378,
+  "accuracy": 0.5720664041888217,
+  "time_s": 154.6,
+  "best_params": {
+    "model__C": 0.1
+  },
+  "cv_macro_f1": 0.53627400762986
+}

@@ -1,0 +1,10 @@
+{
+  "model": "Dummy",
+  "variant": "most_frequent",
+  "schema": "3-class",
+  "macro_f1": 0.2138347440103664,
+  "weighted_f1": 0.3029289375918256,
+  "accuracy": 0.47221658481146245,
+  "time_s": 0.0,
+  "best_params": null
+}

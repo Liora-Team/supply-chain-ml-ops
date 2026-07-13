@@ -1,0 +1,16 @@
+{
+  "model": "RandomForest",
+  "variant": "halving + cw=balanced",
+  "schema": "5-class",
+  "macro_f1": 0.49636534573451757,
+  "weighted_f1": 0.5204380458806255,
+  "accuracy": 0.537037788691805,
+  "time_s": 2390.8,
+  "best_params": {
+    "model__max_depth": null,
+    "model__max_features": "sqrt",
+    "model__min_samples_leaf": 7,
+    "model__n_estimators": 150
+  },
+  "cv_macro_f1": 0.4920597791378361
+}

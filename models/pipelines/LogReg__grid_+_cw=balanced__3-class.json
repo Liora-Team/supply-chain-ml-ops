@@ -1,0 +1,17 @@
+{
+  "model": "LogReg",
+  "variant": "grid + cw=balanced",
+  "schema": "3-class",
+  "macro_f1": 0.7012588821454866,
+  "weighted_f1": 0.7619554478599677,
+  "accuracy": 0.7489548240451354,
+  "time_s": 27.5,
+  "best_params": {
+    "model__C": 0.5
+  },
+  "cv_macro_f1": 0.6957872127723516,
+  "pipeline_macro_f1": 0.6867463805921942,
+  "pipeline_weighted_f1": 0.7490539675332796,
+  "pipeline_accuracy": 0.7349109063603523,
+  "pipeline_note": "Bundled Pipeline(tfidf->clf) by scripts/build_pipelines.py"
+}

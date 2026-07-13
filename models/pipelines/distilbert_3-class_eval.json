@@ -1,0 +1,27 @@
+{
+  "schema": "3-class",
+  "model": "DistilBERT (distilbert-base-uncased)",
+  "phases": {
+    "phase_1_frozen_head": {
+      "test_macro_f1": 0.6550,
+      "test_weighted_f1": null,
+      "test_accuracy": null
+    },
+    "phase_2_partial_unfreeze": {
+      "test_macro_f1": 0.6811,
+      "test_weighted_f1": null,
+      "test_accuracy": null
+    }
+  },
+  "training": {
+    "max_length": 160,
+    "batch_size": 64,
+    "phase_1_epochs": 2,
+    "phase_2_epochs": 3,
+    "precision": "bf16",
+    "loss": "weighted CrossEntropy (sklearn.utils.compute_class_weight 'balanced')",
+    "random_state": 42
+  },
+  "source": "notebooks/01_marco_modeling.ipynb §8.5 (bert_results dict; not persisted to results_progress.parquet)",
+  "note": "weighted_f1 and accuracy must be filled in next run by writing this file from cell 33's metrics dict; current values transcribed from §8.5 markdown commentary."
+}

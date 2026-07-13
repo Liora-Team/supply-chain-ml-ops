@@ -1,0 +1,10 @@
+{
+  "model": "LogReg",
+  "variant": "baseline (cw=balanced)",
+  "schema": "5-class",
+  "macro_f1": 0.556750367481882,
+  "weighted_f1": 0.5785137013139208,
+  "accuracy": 0.5790071843162723,
+  "time_s": 20.9,
+  "best_params": null
+}

@@ -1,0 +1,18 @@
+{
+  "model": "XGBoost",
+  "variant": "bayes (no resampling)",
+  "schema": "5-class",
+  "macro_f1": 0.4045693362335456,
+  "weighted_f1": 0.4249465269524633,
+  "accuracy": 0.4257823598652433,
+  "time_s": 260.0,
+  "best_params": {
+    "model__colsample_bytree": 0.5,
+    "model__learning_rate": 0.29999999999999993,
+    "model__max_depth": 3,
+    "model__n_estimators": 300,
+    "model__reg_lambda": 10.0,
+    "model__subsample": 1.0
+  },
+  "cv_macro_f1": 0.4012961081251907
+}
