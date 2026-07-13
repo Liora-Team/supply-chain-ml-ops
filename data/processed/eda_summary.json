@@ -1,0 +1,429 @@
+{
+  "n_reviews": 123181,
+  "n_categories": 22,
+  "n_companies": 1680,
+  "star_counts": {
+    "1": 24065,
+    "2": 19687,
+    "3": 21264,
+    "4": 26013,
+    "5": 32152
+  },
+  "category_stats": [
+    {
+      "category": "Hobbies & Crafts",
+      "mean_rating": 3.389,
+      "n": 5323
+    },
+    {
+      "category": "Home Services",
+      "mean_rating": 3.283,
+      "n": 5387
+    },
+    {
+      "category": "Restaurants & Bars",
+      "mean_rating": 3.282,
+      "n": 5204
+    },
+    {
+      "category": "Public & Local Services",
+      "mean_rating": 3.267,
+      "n": 5201
+    },
+    {
+      "category": "Beauty & Well-being",
+      "mean_rating": 3.257,
+      "n": 5199
+    },
+    {
+      "category": "Legal Services & Government",
+      "mean_rating": 3.257,
+      "n": 5117
+    },
+    {
+      "category": "Business Services",
+      "mean_rating": 3.252,
+      "n": 6190
+    },
+    {
+      "category": "Education & Training",
+      "mean_rating": 3.252,
+      "n": 6365
+    },
+    {
+      "category": "Sports",
+      "mean_rating": 3.221,
+      "n": 6134
+    },
+    {
+      "category": "Food, Beverages & Tobacco",
+      "mean_rating": 3.197,
+      "n": 5895
+    },
+    {
+      "category": "Animals & Pets",
+      "mean_rating": 3.185,
+      "n": 5446
+    },
+    {
+      "category": "Health & Medical",
+      "mean_rating": 3.179,
+      "n": 5646
+    },
+    {
+      "category": "Electronics & Technology",
+      "mean_rating": 3.173,
+      "n": 5596
+    },
+    {
+      "category": "Events & Entertainment",
+      "mean_rating": 3.164,
+      "n": 5298
+    },
+    {
+      "category": "Home & Garden",
+      "mean_rating": 3.147,
+      "n": 6141
+    },
+    {
+      "category": "Construction & Manufacturing",
+      "mean_rating": 3.124,
+      "n": 5339
+    },
+    {
+      "category": "Shopping & Fashion",
+      "mean_rating": 3.105,
+      "n": 5794
+    },
+    {
+      "category": "Money & Insurance",
+      "mean_rating": 3.103,
+      "n": 5729
+    },
+    {
+      "category": "Utilities",
+      "mean_rating": 3.085,
+      "n": 5636
+    },
+    {
+      "category": "Media & Publishing",
+      "mean_rating": 3.057,
+      "n": 5351
+    },
+    {
+      "category": "Vehicles & Transportation",
+      "mean_rating": 3.029,
+      "n": 5765
+    },
+    {
+      "category": "Travel & Vacation",
+      "mean_rating": 3.027,
+      "n": 5425
+    }
+  ],
+  "keyword_prevalence": {
+    "delivery": 0.1537,
+    "refund": 0.0498,
+    "defective": 0.0322,
+    "price": 0.0838
+  },
+  "length_by_star": {
+    "1": {
+      "word_count": {
+        "0.05": 16.0,
+        "0.25": 43.0,
+        "0.5": 68.0,
+        "0.75": 104.0,
+        "0.95": 210.0
+      }
+    },
+    "2": {
+      "word_count": {
+        "0.05": 15.0,
+        "0.25": 39.0,
+        "0.5": 63.0,
+        "0.75": 95.0,
+        "0.95": 194.0
+      }
+    },
+    "3": {
+      "word_count": {
+        "0.05": 14.0,
+        "0.25": 34.0,
+        "0.5": 56.0,
+        "0.75": 83.0,
+        "0.95": 160.84999999999854
+      }
+    },
+    "4": {
+      "word_count": {
+        "0.05": 10.0,
+        "0.25": 26.0,
+        "0.5": 43.0,
+        "0.75": 66.0,
+        "0.95": 119.0
+      }
+    },
+    "5": {
+      "word_count": {
+        "0.05": 12.0,
+        "0.25": 26.0,
+        "0.5": 42.0,
+        "0.75": 63.0,
+        "0.95": 107.0
+      }
+    }
+  },
+  "top_tokens_per_star": {
+    "1": [
+      {
+        "token": "service",
+        "count": 10850
+      },
+      {
+        "token": "company",
+        "count": 9578
+      },
+      {
+        "token": "time",
+        "count": 8710
+      },
+      {
+        "token": "customer",
+        "count": 8374
+      },
+      {
+        "token": "day",
+        "count": 8143
+      },
+      {
+        "token": "would",
+        "count": 8132
+      },
+      {
+        "token": "order",
+        "count": 7197
+      },
+      {
+        "token": "get",
+        "count": 6744
+      },
+      {
+        "token": "email",
+        "count": 6394
+      },
+      {
+        "token": "one",
+        "count": 6020
+      },
+      {
+        "token": "money",
+        "count": 5633
+      },
+      {
+        "token": "delivery",
+        "count": 5602
+      }
+    ],
+    "2": [
+      {
+        "token": "time",
+        "count": 7687
+      },
+      {
+        "token": "service",
+        "count": 6961
+      },
+      {
+        "token": "day",
+        "count": 6686
+      },
+      {
+        "token": "would",
+        "count": 6440
+      },
+      {
+        "token": "delivery",
+        "count": 5943
+      },
+      {
+        "token": "order",
+        "count": 5281
+      },
+      {
+        "token": "get",
+        "count": 5165
+      },
+      {
+        "token": "one",
+        "count": 5047
+      },
+      {
+        "token": "customer",
+        "count": 4945
+      },
+      {
+        "token": "good",
+        "count": 4617
+      },
+      {
+        "token": "email",
+        "count": 3818
+      },
+      {
+        "token": "company",
+        "count": 3679
+      }
+    ],
+    "3": [
+      {
+        "token": "good",
+        "count": 8138
+      },
+      {
+        "token": "time",
+        "count": 6981
+      },
+      {
+        "token": "delivery",
+        "count": 6843
+      },
+      {
+        "token": "service",
+        "count": 6582
+      },
+      {
+        "token": "would",
+        "count": 6232
+      },
+      {
+        "token": "day",
+        "count": 5713
+      },
+      {
+        "token": "order",
+        "count": 4853
+      },
+      {
+        "token": "one",
+        "count": 4661
+      },
+      {
+        "token": "get",
+        "count": 4643
+      },
+      {
+        "token": "great",
+        "count": 3983
+      },
+      {
+        "token": "customer",
+        "count": 3820
+      },
+      {
+        "token": "however",
+        "count": 3493
+      }
+    ],
+    "4": [
+      {
+        "token": "good",
+        "count": 12607
+      },
+      {
+        "token": "service",
+        "count": 9199
+      },
+      {
+        "token": "great",
+        "count": 8453
+      },
+      {
+        "token": "would",
+        "count": 7220
+      },
+      {
+        "token": "delivery",
+        "count": 7185
+      },
+      {
+        "token": "time",
+        "count": 7085
+      },
+      {
+        "token": "day",
+        "count": 4430
+      },
+      {
+        "token": "easy",
+        "count": 4369
+      },
+      {
+        "token": "product",
+        "count": 4305
+      },
+      {
+        "token": "one",
+        "count": 4233
+      },
+      {
+        "token": "order",
+        "count": 4229
+      },
+      {
+        "token": "helpful",
+        "count": 4082
+      }
+    ],
+    "5": [
+      {
+        "token": "service",
+        "count": 16190
+      },
+      {
+        "token": "great",
+        "count": 13155
+      },
+      {
+        "token": "time",
+        "count": 8102
+      },
+      {
+        "token": "good",
+        "count": 7738
+      },
+      {
+        "token": "excellent",
+        "count": 6991
+      },
+      {
+        "token": "recommend",
+        "count": 6250
+      },
+      {
+        "token": "delivery",
+        "count": 6064
+      },
+      {
+        "token": "would",
+        "count": 6055
+      },
+      {
+        "token": "easy",
+        "count": 5860
+      },
+      {
+        "token": "customer",
+        "count": 5642
+      },
+      {
+        "token": "helpful",
+        "count": 5584
+      },
+      {
+        "token": "thank",
+        "count": 5355
+      }
+    ]
+  }
+}
