@@ -83,15 +83,21 @@ baseline pipelines (`make train`), 15 tests, `api/main.py`, CI workflow, docs.
 - **Why:** data versioning gives datasets the audit trail git gives code — you can name the
   exact bytes a model trained on (data lineage) without bloating the repo.
 - **Run:** `uv add --group dev dvc` → `dvc init` → `dvc add data/processed/train.csv
-  data/processed/test.csv` → `dvc add` the large `models/` artifacts (e.g. the 64 MB RF-5class,
-  DistilBERT weights) → `dvc remote add`.
-- **Files:** commit the small `*.dvc` pointers; the data itself goes to the remote.
-- **Done when:** `dvc pull` on a fresh clone restores data + large models; git stays small.
-- **Gotcha:** the small served pipelines stay in git (API/tests need them
-  from a clean clone) — only version the *large/generated* artifacts with DVC. DistilBERT
+  data/processed/test.csv` → `dvc add` **every** `models/` weight (all `.joblib`, incl. the
+  64 MB RF-5class; DistilBERT when it arrives) → `dvc remote add`.
+- **Files:** commit the small `*.dvc` pointers; data and weights go to the remote. Team
+  decision: **no model binaries in git** — git holds code + JSON metric sidecars, DVC holds
+  data + weights, MLflow holds runs. CI gains a `dvc pull` step (token via repo secret).
+- **Done when:** fresh clone + `make pull` restores data + all weights and tests pass;
+  `git ls-files` contains no `.joblib`.
+- **Gotcha:** the JSON metric sidecars stay in git (the leaderboard reads them without DVC);
+  onboarding now needs one `make pull` — update the README quickstart claim. DistilBERT
   weights load via env vars (→ [CONTRIBUTING.md §7](CONTRIBUTING.md#7-data--model-handling)).
 
 ### Task 2.4 — Microservices split · **Owner: Marco**
+
+*(Split on the board into 2.4-A day-1 shared setup — dev branch, DagsHub, secrets, hygiene —
+and 2.4-B compose split; see `docs/TODO.md`.)*
 
 - **Why:** isolating services (API / training / tracking / storage) is the architecture step
   that makes everything after — orchestration, scaling, independent deploys — possible.
@@ -114,6 +120,9 @@ the multi-service stack runs.
 ## Milestone 3 — Orchestration & Deployment · Phase 3 · target **Aug 7**
 
 **Goal:** end-to-end automated pipeline, secured + scalable deployment. *(Detail firms up during M2.)*
+
+> 📋 **Board-ready breakdown** — per-member cards with subtask checklists, branch names and
+> acceptance criteria: [`docs/TODO.md`](docs/TODO.md).
 
 **What you'll learn:**
 - **Pipeline orchestration** — a DAG (directed acyclic graph of steps) replaces "run these
@@ -172,6 +181,9 @@ the multi-service stack runs.
 
 **Goal:** detect degradation and react automatically. New-data options for drift/retraining
 → `docs/DATA_SOURCES.md`.
+
+> 📋 **Board-ready breakdown** — per-member cards with subtask checklists, branch names and
+> acceptance criteria: [`docs/TODO.md`](docs/TODO.md).
 
 **What you'll learn:**
 - **Observability** — metrics, dashboards and alerts turn "is it working?" into a glance.

@@ -1,24 +1,35 @@
-# Milestone 2 — Task board source · Phase 2 · target **Jul 24**
+# Milestones 2–4 — Task board source
 
-**Goal:** trace every experiment (MLflow), version data + models (DVC), split the stack into
-services (compose). One card per member, matching the Phase-2 rotation
-([PROJECT_MANAGEMENT.md §1](PROJECT_MANAGEMENT.md)): Luc → A (modeling/tracking),
-Dilshana → D (serving), Mykola → C (data/versioning), Marco → B (infra).
+**The big picture:** trace every experiment (MLflow), version data + models (DVC), split into
+services (M2, **Jul 24**) → orchestrate the pipeline, secure and deploy (M3, **Aug 7**) →
+monitor, detect drift, retrain automatically (M4, **Sep 4**). Defence **Sep 14**.
 
-This file is the **copy-paste source for the GitHub Project board**: create one issue per card
-(title, labels, assignee below), paste the card body as the issue description, keep the
-checklists as task lists so GitHub renders progress. The board — not this file — is the live
-status ([PROJECT_MANAGEMENT.md §2](PROJECT_MANAGEMENT.md)). Roadmap context →
-[MILESTONES.md](../MILESTONES.md) Milestone 2.
+This file is the **copy-paste source for the GitHub Project board**: one issue per card
+(title, labels, assignee below), card body = issue description, checklists stay as task lists
+so GitHub renders progress. The board — not this file — is the live status
+([PROJECT_MANAGEMENT.md §2](PROJECT_MANAGEMENT.md)). Roadmap context →
+[MILESTONES.md](../MILESTONES.md).
 
-**Infra decisions (agreed Jul 15, 2026):**
+Owners follow the rotation matrix ([PROJECT_MANAGEMENT.md §1](PROJECT_MANAGEMENT.md)):
 
+| | Phase 2 | Phase 3 | Phase 4 |
+|---|---|---|---|
+| **Marco** | B — infra | C — data | D — serving |
+| **Mykola** | C — data | D — serving | A — modeling |
+| **Dilshana** | D — serving | A — modeling | B — infra |
+| **Luc** | A — modeling | B — infra | C — data |
+
+**Architecture decisions (agreed Jul 15, 2026):**
+
+- **No model binaries in git.** Git holds code + small metadata (JSON metric sidecars);
+  **DVC** holds data + all model weights (every `.joblib`, DistilBERT); **MLflow** holds
+  runs + the registry. CI restores weights with a DVC pull authenticated by a repo secret.
 - **DagsHub** hosts the shared MLflow tracking server **and** the DVC remote (S3). One free
-  hosted platform, everyone sees the same runs and data; compose adds local-dev services only.
+  hosted platform; compose adds local-dev services only.
 - **Model registry uses aliases** (`models:/<name>@production`) — stage transitions are
   deprecated in MLflow 2.x.
 - **Git flow uses the `dev` integration branch** — all PRs target `dev`; `dev → main` merges
-  once per milestone ([CONTRIBUTING.md §3](../CONTRIBUTING.md)).
+  once per milestone, tagged ([CONTRIBUTING.md §3](../CONTRIBUTING.md)).
 
 **Shared env contract** (set in `.env`, documented in `.env.example`, values never committed):
 
@@ -30,10 +41,15 @@ status ([PROJECT_MANAGEMENT.md §2](PROJECT_MANAGEMENT.md)). Roadmap context →
 **Dependency order:**
 
 ```
-2.4-A (Marco, day 1: dev branch + DagsHub + env plumbing)
-   └─→ 2.1 (Luc: tracking)  ──→ 2.2 (Dilshana: registry needs runs to register)
-   └─→ 2.3 (Mykola: DVC — parallel, only needs DagsHub creds)
-   └─→ 2.4-B (Marco: compose services — parallel after A)
+M2: 2.4-A (Marco, day 1: dev branch + DagsHub + secrets)
+      └─→ 2.1 (Luc: tracking) ─┐
+      └─→ 2.2 (Dilshana: registry — parallel; final promote waits on 2.1)
+      └─→ 2.3 (Mykola: DVC)    ├─→ M2 exit: dev → main, tag milestone-2
+      └─→ 2.4-B (Marco: compose split)
+M3: 3.1 (data DAG) ↔ 3.2 (model DAG — same orchestrator, agreed interface)
+    3.3 (API security) and 3.4 (CI/CD + k8s) fully parallel
+M4: 4.3 (/metrics) ─→ 4.2 (Prometheus/Grafana scrapes it)
+    4.1 (drift) ─→ 4.4 (retrain trigger consumes the drift signal)
 ```
 
 Everyone: branch from `dev`, PR to `dev`, squash-merge, `Closes #NN`, ≥1 review, CI green
@@ -42,21 +58,27 @@ Everyone: branch from `dev`, PR to `dev`, squash-merge, `Closes #NN`, ≥1 revie
 
 ### Working in parallel on `dev` (avoid merge pain)
 
-After Card 2.4 part A creates `dev` and the DagsHub access, **all four cards can be worked at
-the same time on separate branches** — the design keeps each card's core logic in different
-files (`build_pipelines.py`, `registry.py`/`api`, `.dvc/`, `docker-compose.yml`). A few files
-are touched by more than one card; handle them so branches coexist:
+After Card 2.4-A creates `dev` and the DagsHub access, **all Phase-2 cards can be worked at
+the same time on separate branches** — each card's core logic lives in different files
+(`build_pipelines.py`, `registry.py`/`api`, `.dvc/`, `docker-compose.yml`). A few files are
+touched by more than one card; handle them so branches coexist:
 
 | Shared file | Touched by | Rule |
 |---|---|---|
-| `.env.example` | 2.1, 2.2, 2.4 | Append your vars under a clearly-commented section header; don't reorder existing lines. |
+| `.env.example` | 2.1, 2.2, 2.4-A | Append your vars under a clearly-commented section header; don't reorder existing lines. |
 | `README.md` | 2.1, 2.2, 2.3 | Each card edits a **different** section (train row / API section / quickstart) — edit only yours. |
 | `pyproject.toml` + `uv.lock` | 2.1 (`track`), 2.3 (`dvc`) | Add your dependency group only. If `uv.lock` conflicts on merge, **regenerate it** (`uv lock`), never hand-resolve. |
-| `CONTRIBUTING.md` | 2.3 (§7), 2.4 (§6) | Different sections — edit only yours. |
+| `CONTRIBUTING.md` | 2.3 (§7), 2.4-A (§6) | Different sections — edit only yours. |
+| `.github/workflows/ci.yml` | 2.3 (dvc pull step) | Only 2.3 touches CI in Phase 2. |
 
 General: keep each PR small, **rebase on `dev` right before opening the PR** (pull in whatever
 merged first), and re-run `make test` after the rebase. Whoever merges second on a shared file
 rebases, not the first.
+
+---
+---
+
+# Milestone 2 — Microservices, Tracking & Versioning · target **Jul 24**
 
 ---
 
@@ -67,7 +89,7 @@ rebases, not the first.
 | **Assignee** | **Luc** |
 | **Labels** | `phase-2` `type:model` `priority:high` |
 | **Branch** | `feature/lu-mlflow-tracking` (from `dev`) |
-| **Depends on** | Card 2.4 part A (DagsHub repo + token exist) |
+| **Depends on** | Card 2.4-A (DagsHub repo + token exist) |
 | **Files** | `scripts/build_pipelines.py` · `pyproject.toml` + `uv.lock` · `.env.example` · `tests/` · README (`make train` row) |
 
 **Why:** every training run becomes reproducible and comparable — params, macro-F1 and the
@@ -126,7 +148,7 @@ still trains and logs locally; `uv run pytest` green without any server.
 | **Assignee** | **Dilshana** |
 | **Labels** | `phase-2` `type:api` `priority:high` |
 | **Branch** | `feature/di-mlflow-registry` (from `dev`) |
-| **Depends on** | Card 2.4 part A only (DagsHub repo + token). **Runs parallel to 2.1** — build the loader, API wiring and all three tests against a run you log yourself locally; only the *final* promotion of the team's real best model waits for 2.1 to merge. |
+| **Depends on** | Card 2.4-A only (DagsHub repo + token). **Runs parallel to 2.1** — build the loader, API wiring and all three tests against a run you log yourself locally; only the *final* promotion of the team's real best model waits for 2.1 to merge. |
 | **Files** | `api/main.py` · `src/registry.py` · new `scripts/register_model.py` · `tests/test_api.py` · `.env.example` · README API section |
 
 **Why:** a model registry decouples "a new model exists" from "the API serves it" —
@@ -140,8 +162,9 @@ deployment becomes a one-step alias move, rollback is moving the alias back.
      the **`production` alias** (the `models:/<name>@production` URI form);
   2. on any failure (no server, no registered model, no alias, timeout) **or** when the env
      var is unset, use the existing local-joblib path (`src/registry.py` scan →
-     `ModelEntry.joblib_path`), exactly as today. The API must always boot offline; CI has
-     no MLflow server.
+     `ModelEntry.joblib_path`) — after Card 2.3 lands, that local file is the DVC-restored
+     copy (`make pull`), no longer a git-committed one. The API must always boot offline
+     once weights are pulled; CI has no MLflow server.
 - The loaded object is the same TF-IDF + classifier pipeline either way — the downstream
   `src/inference.predict_classical` code path stays unchanged.
 
@@ -155,8 +178,7 @@ deployment becomes a one-step alias move, rollback is moving the alias back.
       assignment — aliases, not deprecated stages. Build and test it against a run **you log
       yourself** (log a quick LogReg pipeline to your local `mlruns/`); the *final* promotion
       of the team's real best model is the one step that waits for 2.1 to merge. Rollback =
-      pointing the alias back at the
-      previous version; document both flows.
+      pointing the alias back at the previous version; document both flows.
 - [ ] `src/registry.py`: add a `load_production(schema)` helper implementing the precedence
       above, returning the pipeline plus a source marker (registry vs local joblib). Import
       MLflow lazily inside the function so plain module import stays MLflow-free.
@@ -176,32 +198,33 @@ deployment becomes a one-step alias move, rollback is moving the alias back.
 
 Moving the `production` alias to a different model version in MLflow changes what the API
 serves — **no code edit, no image rebuild** (restart allowed). Without the env var the API
-boots offline and CI stays green.
+boots offline (weights present via `make pull`) and CI stays green.
 
 ---
 
-## Card 2.3 — Version data + large models with DVC (DagsHub remote)
+## Card 2.3 — Move data + all model weights to DVC (DagsHub remote)
 
 | | |
 |---|---|
 | **Assignee** | **Mykola** |
 | **Labels** | `phase-2` `type:data` `priority:high` |
 | **Branch** | `feature/mk-dvc-versioning` (from `dev`) |
-| **Depends on** | Card 2.4 part A (DagsHub repo + token exist) — otherwise parallel |
-| **Files** | `.dvc/config` · `*.dvc` pointers · `.gitignore` · `Makefile` · `CONTRIBUTING.md §7` · README quickstart |
+| **Depends on** | Card 2.4-A (DagsHub repo + token + `DAGSHUB_TOKEN` Actions secret) |
+| **Files** | `.dvc/config` · `*.dvc` pointers · `.gitignore` · `.github/workflows/ci.yml` · `Makefile` · `CONTRIBUTING.md §7` · README quickstart |
 
-**Why:** datasets and weights get the same audit trail git gives code — you can name the exact
-bytes a model trained on without bloating the repo.
+**Why:** the team decision is **no model binaries in git** — git holds code + small metadata,
+DVC holds data + weights, MLflow holds runs. Datasets and weights get the same audit trail
+git gives code, and the repo stays small.
 
 ### What goes to DVC vs stays in git
 
-| Artifact | Where | Why |
-|---|---|---|
-| `data/processed/train.csv` + `test.csv` (~123k rows) | **DVC** | large, regenerable via `make data` |
-| `models/pipelines/RandomForest__…__5-class.joblib` (64 MB) | **DVC** | currently git-ignored, only its JSON sidecar committed |
-| `models/pipelines/RandomForest__…__3-class.joblib` (10.8 MB) | **DVC** (migrate out of git) | repo-review fix — largest tracked file after `uv.lock` |
-| all other served pipelines (few hundred KB) + all JSON sidecars | **git** | API/tests must work from clean clone without DVC |
-| `data/processed/eda_sample.parquet` + `eda_summary.json` | **git** | small committed EDA artifacts, unchanged |
+| Artifact | Where |
+|---|---|
+| `data/processed/train.csv` + `test.csv` (~123k rows) | **DVC** |
+| **all** `models/pipelines/*.joblib` — the 9 currently committed (incl. the 10.8 MB RF 3-class) **plus** the git-ignored 64 MB RF 5-class | **DVC** (migrate out of git) |
+| DistilBERT weights, when they arrive | **DVC** (or HF hub via env vars — CONTRIBUTING §7) |
+| all JSON metric sidecars (`models/checkpoints/*.json`, `models/pipelines/*.json`) | **git** — small metadata, the leaderboard reads them without DVC |
+| `data/processed/eda_sample.parquet` + `eda_summary.json` | **git** — small committed EDA artifacts |
 
 ### Subtasks
 
@@ -215,50 +238,53 @@ bytes a model trained on without bloating the repo.
       and secret); only the committed `.dvc/config` carries the url/endpoint.
 - [ ] Data: regenerate the CSVs locally with `make data`, then put `train.csv` and
       `test.csv` under DVC tracking. The root `.gitignore` already ignores `data/` — let DVC
-      manage its own ignore entries next to the data, and make sure the two committed EDA
-      artifacts stay un-ignored as today.
-- [ ] Models:
-      - RF 5-class weight (rebuild with `make train` if absent locally — it's git-ignored):
-        put it under DVC tracking;
-      - RF 3-class weight: **remove it from git tracking while keeping the file on disk**
-        (git's cached-removal mode), then put it under DVC tracking. Its JSON sidecar stays
-        in git. Clean up the now-obsolete explicit ignore/un-ignore lines for these two
-        joblibs in the root `.gitignore` — DVC writes its own.
+      manage its own ignore entries next to the data, and keep the two committed EDA
+      artifacts un-ignored as today.
+- [ ] Models — migrate **every** `.joblib` out of git: for each of the 9 committed pipeline
+      joblibs, remove it from git tracking while keeping the file on disk (git's
+      cached-removal mode), then put it under DVC tracking. Also DVC-track the 64 MB RF
+      5-class weight (rebuild with `make train` if absent locally). All JSON sidecars stay in
+      git. Clean up the now-obsolete joblib ignore/un-ignore lines in the root `.gitignore` —
+      DVC writes its own.
 - [ ] Publish in the right order: commit the `.dvc` pointer files, DVC-managed ignore files
       and `.dvc/config` to git; push the binaries to the remote with DVC **before** pushing
       the git branch, so reviewers can pull immediately.
-- [ ] Graceful-degrade check: without a DVC pull, both RF entries lack a local joblib —
-      `src/registry.py` already renders such entries leaderboard-only (`loadable` false, as
-      the 5-class does today). Run the test suite on a clone without pulling — must stay green.
+- [ ] **CI** (`.github/workflows/ci.yml`): add a DVC pull step before pytest — install the
+      dvc extra, write the DagsHub credentials from the **`DAGSHUB_TOKEN` repository secret**
+      (created in Card 2.4-A) into the local DVC config, pull. Tests need the weights now
+      that none are committed.
 - [ ] `Makefile`: add a `pull` target wrapping DVC pull, plus a `make help` line.
-- [ ] Docs: `CONTRIBUTING.md §7` gets the concrete day-to-day loop (track new artifacts with
-      `dvc add`, refresh re-generated ones with `dvc commit`, push data before pushing git,
-      pull data after pulling git); README quickstart notes the optional `make pull` for
-      full-size data/models.
+- [ ] Docs — this changes the on-boarding story:
+      - README quickstart: fresh clone now needs **one `make pull`** (with DagsHub creds)
+        before `make test` / `make api`; update the "no dataset download and no training"
+        claim accordingly;
+      - `CONTRIBUTING.md §7`: the concrete day-to-day loop (track new artifacts with
+        `dvc add`, refresh re-generated ones with `dvc commit`, push data before pushing
+        git, pull data after pulling git) and the golden-rule wording (clean clone +
+        `uv sync` + `make pull`).
 
 ### Done when
 
-Fresh clone + credentials in `.dvc/config.local` + `make pull` restores both CSVs and both RF
-weights; `make test` and `make api` pass on a clean clone **without** DVC; no git-tracked
-file over ~1 MB remains except `uv.lock`.
+Fresh clone + credentials + `make pull` restores CSVs and all 10 weights, then `make test`
+and `make api` pass; CI is green pulling via the repo secret; `git ls-files` contains **zero
+`.joblib`** and no tracked file over ~1 MB except `uv.lock`.
 
 ---
 
-## Card 2.4 — Shared infra: dev branch, DagsHub, microservices compose split
+## Card 2.4-A — Day-1 shared infra setup (dev branch, DagsHub, secrets, hygiene)
 
 | | |
 |---|---|
 | **Assignee** | **Marco** |
 | **Labels** | `phase-2` `type:infra` `priority:high` |
-| **Branch** | `feature/ma-compose-services` (from `dev`; part A is repo-settings work, day 1) |
-| **Depends on** | — (part A unblocks everyone) |
-| **Files** | `docker-compose.yml` · `Dockerfile` · `.env.example` · `.dockerignore` · `.pre-commit-config.yaml` (new) · `CONTRIBUTING.md` |
+| **Branch** | `feature/ma-infra-setup` (from `dev`, for the file changes; branch/settings work is done directly on GitHub) |
+| **Depends on** | — (day 1, unblocks every other Phase-2 card) |
+| **Files** | `.env.example` · `.pre-commit-config.yaml` (new) · `.dockerignore` · `CONTRIBUTING.md §6` |
 
-**Why:** one container per responsibility (API / training / tracking) is the architecture step
-that makes orchestration, scaling and independent deploys possible — and part A is the shared
-plumbing every other card needs on day 1.
+**Why:** the shared plumbing every other card needs on day 1 — the integration branch, the
+hosted MLflow/DVC platform, the credentials, and the local quality gate.
 
-### Subtasks — part A (day 1, unblocks 2.1/2.2/2.3)
+### Subtasks
 
 - [ ] Create the `dev` branch from up-to-date `main` and push it to origin.
 - [ ] GitHub settings (manual): make `dev` the default branch; add branch protection on
@@ -270,56 +296,397 @@ plumbing every other card needs on day 1.
 - [ ] Each member generates a DagsHub personal access token (DagsHub settings → tokens);
       update `.env.example` with the three `MLFLOW_*` vars from the shared env contract at
       the top of this file. Tokens are never committed.
+- [ ] Add the **`DAGSHUB_TOKEN` repository secret** on GitHub (Settings → Secrets and
+      variables → Actions) — Card 2.3's CI pull step authenticates with it.
+- [ ] New `.pre-commit-config.yaml` running the same ruff + black checks as CI; add
+      `pre-commit` to the `dev` dependency group and a `CONTRIBUTING.md §6` line telling
+      contributors to install the hook once.
+- [ ] Prune dead `.dockerignore` entries (`notebooks/`, `configs/`, `requirements.txt`,
+      `.gstack/`).
 
-### Subtasks — part B (compose split)
+### Done when
 
+`dev` is the default branch with protections on both long-lived branches; all members have
+DagsHub access + tokens; the `DAGSHUB_TOKEN` Actions secret exists; pre-commit runs ruff +
+black locally on commit.
+
+---
+
+## Card 2.4-B — Microservices compose split
+
+| | |
+|---|---|
+| **Assignee** | **Marco** |
+| **Labels** | `phase-2` `type:infra` `priority:high` |
+| **Branch** | `feature/ma-compose-services` (from `dev`) |
+| **Depends on** | Card 2.4-A (env contract exists). Parallel to 2.1/2.2/2.3. |
+| **Files** | `docker-compose.yml` · `Dockerfile` · README (compose notes) |
+
+**Why:** one container per responsibility (API / training / tracking) is the architecture
+step that makes orchestration, scaling and independent deploys possible.
+
+### Subtasks
+
+- [ ] `Dockerfile`: convert to multi-stage with named targets — the existing image becomes
+      the default `api` target; add `training` and `bert` targets that differ only in which
+      uv dependency groups they sync (`track` / `bert`).
 - [ ] `docker-compose.yml` — one service per responsibility:
       - **api** (exists): add passthrough of the three `MLFLOW_*` env vars so Card 2.2's
         registry load works in-container;
-      - **training**: one-shot job that runs the training script; built from a dedicated
-        Dockerfile target that adds the `track` dependency group; gated behind a compose
-        **profile** (e.g. `train`) so a plain `docker compose up` never retrains; mounts the
-        `data/` and `models/` directories; gets the `MLFLOW_*` passthrough;
+      - **training**: one-shot job that runs the training script; built from the `training`
+        Dockerfile target; gated behind a compose **profile** (e.g. `train`) so a plain
+        `docker compose up` never retrains; mounts the `data/` and `models/` directories;
+        gets the `MLFLOW_*` passthrough;
       - **mlflow**: local tracking UI for offline dev only (team truth lives on DagsHub) —
         official MLflow image, server on port 5000, run store on a named volume;
-      - **bert**: DistilBERT as its own torch-only service, built from a Dockerfile target
-        that installs the `bert` dependency group; behind its own profile; weights located
-        via the `DISTILBERT_*` env vars ([CONTRIBUTING.md §7](../CONTRIBUTING.md)). Keeps the
-        classical API image slim.
-- [ ] `Dockerfile`: convert to multi-stage with named targets — the existing image becomes
-      the default `api` target; add `training` and `bert` targets that differ only in which
-      uv dependency groups they sync.
+      - **bert**: DistilBERT as its own torch-only service from the `bert` Dockerfile
+        target; behind its own profile; weights located via the `DISTILBERT_*` env vars
+        ([CONTRIBUTING.md §7](../CONTRIBUTING.md)). Keeps the classical API image slim.
 - [ ] Inside containers, services address each other by **service name** over the compose
       network (e.g. the mlflow service on port 5000), never `localhost`.
-- [ ] Repo hygiene (repo-review fixes):
-      - new `.pre-commit-config.yaml` running the same ruff + black checks as CI; add
-        `pre-commit` to the `dev` dependency group and a `CONTRIBUTING.md §6` line telling
-        contributors to install the hook once;
-      - prune dead `.dockerignore` entries (`notebooks/`, `configs/`, `requirements.txt`,
-        `.gstack/`).
 - [ ] Verify: `docker compose up` → api + mlflow healthy (healthchecks pass); the train
       profile runs to completion and its run appears in the configured tracking server.
 
 ### Done when
 
-`dev` is the default branch with protections on both long-lived branches; all members have
-DagsHub access + tokens; `docker compose up` brings up `api` + `mlflow` healthy; the train
-profile runs a tracked training whose model the API can then serve.
+`docker compose up` brings up `api` + `mlflow` healthy; the train profile runs a tracked
+training whose model the API can then serve; the bert profile builds and starts its own
+torch image.
 
+---
+
+### Milestone 2 exit checklist
+
+- [ ] An experiment is tracked in MLflow (DagsHub UI shows params + macro-F1 + artifact)
+- [ ] `make pull` on a fresh clone restores data + all weights; CI pulls via the secret
+- [ ] `git ls-files` contains no model binaries
+- [ ] Moving the `production` alias changes what the API serves
+- [ ] The multi-service stack runs (`docker compose up`)
+- [ ] `dev → main` milestone merge done, tag `milestone-2`
+
+---
+---
+
+# Milestone 3 — Orchestration & Deployment · target **Aug 7**
+
+Open tooling decisions are marked **[decide at M3 kickoff]** — settle them in the first
+check-in of the phase, record the choice as a short ADR note under `docs/`
+([CONTRIBUTING.md §8](../CONTRIBUTING.md)).
+
+---
+
+## Card 3.1 — Orchestrated pipeline, data half
+
+| | |
+|---|---|
+| **Assignee** | **Marco** |
+| **Labels** | `phase-3` `type:data` `priority:med` |
+| **Branch** | `feature/ma-dag-data` (from `dev`) |
+| **Depends on** | M2 complete. Shares the orchestrator + DAG with 3.2 — agree the interface first (see below). |
+| **Files** | new `dags/` (or `flows/`) · `docker-compose.yml` (orchestrator service) · `scripts/get_data.py` reuse |
+
+**Why:** orchestration encodes the pipeline's order and retries in code, so the whole chain
+runs from one trigger instead of tribal knowledge.
+
+### Subtasks
+
+- [ ] **[decide at M3 kickoff]** Orchestrator: Airflow vs Prefect — one decision covering
+      both 3.1 and 3.2 (they are two halves of the same DAG). Record as ADR.
+- [ ] Agree the 3.1 ↔ 3.2 interface with Dilshana before coding: the data half ends by
+      producing versioned `data/processed/` (fresh CSVs, DVC-tracked and pushed); the model
+      half consumes exactly that. Write it down in the DAG module docstring.
+- [ ] Add the orchestrator as a compose service (own profile, so the default stack stays
+      light); UI port documented.
+- [ ] DAG steps, data half: ingest (reuse `scripts/get_data.py` logic — import, don't
+      shell out blindly) → preprocess → DVC add/commit + push of the refreshed
+      `data/processed/`. The DAG runs in its own container: pull inputs explicitly at the
+      start, never assume the host's files.
+- [ ] Retries + failure alerts on each step (orchestrator-native settings are enough).
+- [ ] Docs: how to trigger manually, where to watch progress.
+
+### Done when
+
+Triggering the DAG produces fresh, DVC-versioned `data/processed/` with no manual steps, and
+the run is visible (with per-step status) in the orchestrator UI.
+
+---
+
+## Card 3.2 — Orchestrated pipeline, model half (train → eval → gated promote)
+
+| | |
+|---|---|
+| **Assignee** | **Dilshana** |
+| **Labels** | `phase-3` `type:model` `priority:med` |
+| **Branch** | `feature/di-dag-model` (from `dev`) |
+| **Depends on** | 3.1's interface (versioned `data/processed/`); the orchestrator choice is shared. |
+| **Files** | same `dags/`/`flows/` module tree as 3.1 · reuses `scripts/build_pipelines.py` + `scripts/register_model.py` (from 2.2) |
+
+**Why:** a conditional-promotion gate turns "we retrained" into "we retrained and deployed
+*only if* it's better" — automation with a quality bar.
+
+### Subtasks
+
+- [ ] DAG steps, model half: pull the versioned data (from 3.1's output) → train (reuse the
+      tracked training from 2.1, so every DAG run is an MLflow run) → evaluate on the test
+      split → **conditionally promote**.
+- [ ] The gate: promote (move the `production` alias via the 2.2 promotion tooling) only if
+      the new run's macro-F1 beats the **currently served** model's — query the registry for
+      the current production version's metric, never compare against a hard-coded number
+      (baseline reference → `docs/ML_CANVAS.md`).
+- [ ] Log the gate's verdict (promoted / rejected + both scores) where the team can see it —
+      the run's tags plus the orchestrator log.
+- [ ] Test the negative path deliberately: run the DAG with a crippled config (e.g. tiny
+      training subset) and verify the worse model is **not** promoted.
+- [ ] Docs: the promotion rule, how to override manually (registry alias move) if ever needed.
+
+### Done when
+
+One trigger runs data-pull → train → eval → gate end-to-end; a better model gets the
+`production` alias automatically; a worse model is rejected — both cases demonstrated.
+
+---
+
+## Card 3.3 — API security (auth, validation, rate limiting)
+
+| | |
+|---|---|
+| **Assignee** | **Mykola** |
+| **Labels** | `phase-3` `type:api` `priority:med` |
+| **Branch** | `feature/mk-api-security` (from `dev`) |
+| **Depends on** | — fully parallel within M3. |
+| **Files** | `api/main.py` · `tests/test_api.py` · `.env.example` · README API section |
+
+**Why:** authentication, input validation and rate limiting are the minimum bar for exposing
+a model endpoint to the outside world.
+
+### Subtasks
+
+- [ ] **[decide at M3 kickoff]** Auth scheme: static API key (header-based, simplest for a
+      course exam) vs JWT (closer to production). Record as ADR.
+- [ ] Implement auth as a FastAPI dependency on `/predict` and `/models`; key/secret comes
+      from env (documented in `.env.example`), never hard-coded.
+- [ ] **`/health` stays unauthenticated** — the Docker healthcheck and the k8s probes
+      (Card 3.4) depend on it.
+- [ ] Input hardening: request size limit, text length limit, reject empty/absurd payloads
+      with clear 4xx errors (extend the existing pydantic models).
+- [ ] Basic rate limiting per client (middleware or dependency; in-memory is fine at course
+      scale — note the production caveat in the README).
+- [ ] Tests: authorized call passes; missing/wrong key → 401/403; oversized payload → 4xx;
+      burst beyond the limit → 429. Existing tests updated to authenticate.
+
+### Done when
+
+Unauthenticated `/predict` is rejected (401/403) and tests prove all four paths; `/health`
+still answers bare (compose healthcheck stays green).
+
+---
+
+## Card 3.4 — CI/CD + scalable deployment (k8s)
+
+| | |
+|---|---|
+| **Assignee** | **Luc** |
+| **Labels** | `phase-3` `type:infra` `priority:med` |
+| **Branch** | `feature/lu-cicd-k8s` (from `dev`) |
+| **Depends on** | 2.4-B's Dockerfile targets. Parallel to the rest of M3. |
+| **Files** | `.github/workflows/` (build/deploy job) · new `k8s/` manifests · README deploy section |
+
+**Why:** continuous deployment with rollback means a bad release is a one-command revert, and
+replicas mean one crashed container doesn't take the service down.
+
+### Subtasks
+
+- [ ] **[decide at M3 kickoff]** Deployment target: local cluster (kind/minikube — zero
+      cost, demoable on any laptop) vs a cloud cluster. Record as ADR.
+- [ ] Extend CI with a build job: build the `api` image, **tag with the git SHA** (never
+      `latest` — `latest` makes rollback meaningless), push to a registry (GHCR is free for
+      the repo).
+- [ ] Deploy job: apply the k8s manifests with the new tag on merge to `dev` (or manual
+      dispatch — decide with the mentor); keep the previous tag recorded so rollback is one
+      step.
+- [ ] `k8s/` manifests translated from the compose setup: Deployment (**replicas ≥ 2**,
+      resource requests/limits, liveness/readiness probes on `/health`) + Service; secrets
+      for the API key (3.3) and `MLFLOW_*` via k8s Secrets, not baked into the image.
+- [ ] Rollback procedure: documented one-step revert (re-apply previous SHA tag / rollout
+      undo) and actually rehearse it once.
+- [ ] Docs: README deploy section — how a push becomes a deployment, how to roll back.
+
+### Done when
+
+A push deploys automatically; a bad deploy reverts in one step (rehearsed, not just
+documented); the API runs with >1 replica behind a Service.
+
+---
+
+### Milestone 3 exit checklist
+
+- [ ] One trigger runs the full DAG: fresh data → tracked training → gated promotion
+- [ ] A worse model is demonstrably not promoted
+- [ ] `/predict` requires auth; `/health` open; tests cover 401/403/429
+- [ ] Image tagged by git SHA, deployed on k8s with ≥2 replicas, rollback rehearsed
+- [ ] `dev → main` milestone merge done, tag `milestone-3`
+
+---
+---
+
+# Milestone 4 — Monitoring & Maintenance · target **Sep 4**
+
+New-data options for drift/retraining → [DATA_SOURCES.md](DATA_SOURCES.md) (Option 3 —
+category slicing of the existing 123k — is the agreed first pass).
+
+---
+
+## Card 4.1 — Drift detection with Evidently
+
+| | |
+|---|---|
+| **Assignee** | **Mykola** |
+| **Labels** | `phase-4` `type:model` `priority:low` |
+| **Branch** | `feature/mk-drift-evidently` (from `dev`) |
+| **Depends on** | M3's deployed API. 4.4 consumes this card's drift signal. |
+| **Files** | `api/main.py` (request logging) · new `monitoring/` module · `docker-compose.yml` |
+
+**Why:** drift detection compares live inputs against the training distribution — the early
+warning that model quality is about to drop, before labels confirm it.
+
+### Subtasks
+
+- [ ] **Prerequisite first:** persist incoming `/predict` requests (text + predicted label +
+      timestamp) — without a stored "current" dataset there is nothing to compare. Simple
+      append-only store is fine (file/SQLite/volume); mind size growth.
+- [ ] Reference dataset = the training distribution (pull via DVC); current dataset = a
+      recent window of stored requests.
+- [ ] Evidently report job: data-drift + data-quality checks on the text-derived features;
+      runnable on demand and on a schedule (hook into the M3 orchestrator).
+- [ ] Expose the result as a machine-readable **drift flag** (file/endpoint/metric) — 4.4
+      triggers retraining from it and 4.2 alerts on it. Agree the format with Luc and
+      Dilshana before building.
+- [ ] Simulate drift to prove it works: replay a skewed category slice
+      (DATA_SOURCES Option 3) against the API and show the report flips.
+
+### Done when
+
+An injected distribution shift produces a drift report and raises the flag; the flag is
+consumable by 4.2 (alert) and 4.4 (retrain trigger).
+
+---
+
+## Card 4.2 — Dashboards + alerts with Prometheus & Grafana
+
+| | |
+|---|---|
+| **Assignee** | **Dilshana** |
+| **Labels** | `phase-4` `type:infra` `priority:low` |
+| **Branch** | `feature/di-monitoring-stack` (from `dev`) |
+| **Depends on** | 4.3's `/metrics` endpoint (can start against a stub scrape target). |
+| **Files** | `docker-compose.yml` (prometheus + grafana services) · prometheus config · Grafana dashboard JSON + alert rules |
+
+**Why:** dashboards and alert rules are how a team *operates* a model — latency, throughput
+and drift on one screen, with a ping when a threshold breaks.
+
+### Subtasks
+
+- [ ] Compose services: prometheus (scrape config targeting the API's metrics endpoint **by
+      service name** over the compose network, never localhost) + grafana (provisioned
+      datasource + dashboards from JSON, so the setup is reproducible from a clean clone).
+- [ ] Dashboards: request latency (p50/p95), throughput, error rate, drift status (from
+      4.1's flag/metric), container/system health.
+- [ ] Alert rules on top: latency above threshold, error-rate spike, drift flag raised.
+      Route alerts somewhere visible (Grafana alerting UI is enough; a webhook to the team
+      channel is a bonus).
+- [ ] Demonstrate one alert firing end-to-end (e.g. replay the 4.1 drift simulation).
+
+### Done when
+
+A Grafana board shows live metrics from real traffic and an alert fires when drift is
+injected — reproducible from a clean clone via compose.
+
+---
+
+## Card 4.3 — Metrics endpoint, API docs & maintenance guide
+
+| | |
+|---|---|
+| **Assignee** | **Marco** |
+| **Labels** | `phase-4` `type:api` `priority:low` |
+| **Branch** | `feature/ma-metrics-docs` (from `dev`) |
+| **Depends on** | — start of M4 (4.2 scrapes this endpoint). |
+| **Files** | `api/main.py` (`/metrics`) · new `docs/MAINTENANCE.md` · FastAPI `/docs` review |
+
+**Why:** instrumentation exposes what the service is doing; the maintenance guide is the
+course's "could someone else operate this?" success criterion.
+
+### Subtasks
+
+- [ ] Add `/metrics` in Prometheus format via the FastAPI instrumentator library (request
+      count/latency histograms out of the box); keep it unauthenticated **inside** the
+      compose/k8s network but note the exposure caveat in the README.
+- [ ] Coordinate the metric names 4.2 will dashboard/alert on (agree with Dilshana).
+- [ ] `docs/MAINTENANCE.md`: the three operator procedures — **update** (deploy a new model:
+      alias move; deploy new code: CI/CD flow), **rollback** (alias back-move; image tag
+      revert), **retrain** (trigger the DAG manually; what the gate does) — each as a short
+      numbered runbook with the exact commands.
+- [ ] Review the auto-generated FastAPI `/docs`: every endpoint has descriptions, request/
+      response examples, auth documented (3.3). Fix gaps in the pydantic models/docstrings.
+- [ ] *Nice-to-have:* polish the Streamlit demo (`make setup-full && make app`) for the
+      defence.
+
+### Done when
+
+`/metrics` serves Prometheus format (4.2 scrapes it successfully); MAINTENANCE.md covers
+update/rollback/retrain as runnable runbooks; `/docs` is complete.
+
+---
+
+## Card 4.4 — Automated retraining (close the loop)
+
+| | |
+|---|---|
+| **Assignee** | **Luc** |
+| **Labels** | `phase-4` `type:data` `priority:low` |
+| **Branch** | `feature/lu-auto-retrain` (from `dev`) |
+| **Depends on** | 3.1+3.2's DAG · 4.1's drift flag. |
+| **Files** | orchestrator schedule/trigger config · the drift-flag consumer · `docs/MAINTENANCE.md` (retrain section, with Marco) |
+
+**Why:** this closes the MLOps loop — monitoring detects decay, the orchestrator retrains,
+the gate promotes only improvements, unattended.
+
+### Subtasks
+
+- [ ] Trigger the M3 DAG from the 4.1 drift flag (preferred) and/or on a schedule — consume
+      the agreed flag format.
+- [ ] New data for the retrain: replay the next category slice per DATA_SOURCES Option 3 so
+      each retrain genuinely sees new data.
+- [ ] The 3.2 gate stays the promotion authority — retraining never bypasses it.
+- [ ] **Cooldown guard:** a drift flag that never clears must not retrain forever — after a
+      triggered retrain, suppress further triggers for a cooldown window (and alert if drift
+      persists through it, since that means retraining didn't fix it).
+- [ ] End-to-end demo: inject drift → flag raises → DAG fires → better model promoted → API
+      serves it → flag clears. Record the sequence for the defence.
+
+### Done when
+
+Retraining runs unattended from a drift signal, the API picks up the promoted model, and the
+cooldown provably prevents a retrain loop.
+
+---
+
+### Milestone 4 exit checklist
+
+- [ ] Injected drift produces a report + machine-readable flag
+- [ ] Grafana shows live metrics; an alert fires on drift
+- [ ] `/metrics` in Prometheus format; MAINTENANCE.md runbooks complete
+- [ ] Drift signal triggers an unattended retrain; gate + cooldown behave
+- [ ] `dev → main` milestone merge done, tag `milestone-4`
+
+---
 ---
 
 ## Importing cards as GitHub issues
 
 Create one issue per card — title, labels and assignee from the card's table, body = the card
 section from this file (keep the checklists so GitHub renders progress). Use the web UI or the
-`gh issue create` CLI. Then add the four issues to the Project board (**To Do**) and set
-Iteration = current sprint ([PROJECT_MANAGEMENT.md §2](PROJECT_MANAGEMENT.md) for board and
-label conventions).
-
-## Milestone 2 exit checklist
-
-- [ ] An experiment is tracked in MLflow (DagsHub UI shows params + macro-F1 + artifact)
-- [ ] `dvc pull` on a fresh clone restores data + large models
-- [ ] The multi-service stack runs (`docker compose up`)
-- [ ] Moving the `production` alias changes what the API serves
-- [ ] `dev → main` milestone merge done, tag `milestone-2`
+`gh issue create` CLI. Add every issue to the Project board: current-milestone cards in
+**To Do**, future-milestone cards in **Backlog**; set Iteration when a card is pulled into a
+sprint ([PROJECT_MANAGEMENT.md §2](PROJECT_MANAGEMENT.md) for board and label conventions).
+Bump a milestone's cards to `priority:high` at its kickoff.

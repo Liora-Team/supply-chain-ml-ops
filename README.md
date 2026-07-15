@@ -111,7 +111,7 @@ One canonical home per topic — if you're about to write the same thing twice, 
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Env setup, **git/PR workflow**, style, data/model handling, the **golden rule** |
 | [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) | Dataset detail + options for new data over time (drift/retraining) |
 | [docs/TASKS_DONE.md](docs/TASKS_DONE.md) | Completed Phase-1 tasks, issue-ready for the board |
-| [docs/TODO.md](docs/TODO.md) | **Active milestone** cards — per-member checklists, branch names, acceptance criteria (source for the Project board) |
+| [docs/TODO.md](docs/TODO.md) | **Milestones 2–4** cards — per-member checklists, branch names, acceptance criteria (source for the Project board) |
 
 **New to the repo? Read in this order:**
 
