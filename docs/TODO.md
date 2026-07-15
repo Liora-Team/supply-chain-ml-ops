@@ -40,6 +40,24 @@ Everyone: branch from `dev`, PR to `dev`, squash-merge, `Closes #NN`, ≥1 revie
 ([CONTRIBUTING.md](../CONTRIBUTING.md)). Definition of Done →
 [PROJECT_MANAGEMENT.md §4](PROJECT_MANAGEMENT.md).
 
+### Working in parallel on `dev` (avoid merge pain)
+
+After Card 2.4 part A creates `dev` and the DagsHub access, **all four cards can be worked at
+the same time on separate branches** — the design keeps each card's core logic in different
+files (`build_pipelines.py`, `registry.py`/`api`, `.dvc/`, `docker-compose.yml`). A few files
+are touched by more than one card; handle them so branches coexist:
+
+| Shared file | Touched by | Rule |
+|---|---|---|
+| `.env.example` | 2.1, 2.2, 2.4 | Append your vars under a clearly-commented section header; don't reorder existing lines. |
+| `README.md` | 2.1, 2.2, 2.3 | Each card edits a **different** section (train row / API section / quickstart) — edit only yours. |
+| `pyproject.toml` + `uv.lock` | 2.1 (`track`), 2.3 (`dvc`) | Add your dependency group only. If `uv.lock` conflicts on merge, **regenerate it** (`uv lock`), never hand-resolve. |
+| `CONTRIBUTING.md` | 2.3 (§7), 2.4 (§6) | Different sections — edit only yours. |
+
+General: keep each PR small, **rebase on `dev` right before opening the PR** (pull in whatever
+merged first), and re-run `make test` after the rebase. Whoever merges second on a shared file
+rebases, not the first.
+
 ---
 
 ## Card 2.1 — Add MLflow experiment tracking to training
@@ -108,7 +126,7 @@ still trains and logs locally; `uv run pytest` green without any server.
 | **Assignee** | **Dilshana** |
 | **Labels** | `phase-2` `type:api` `priority:high` |
 | **Branch** | `feature/di-mlflow-registry` (from `dev`) |
-| **Depends on** | Card 2.1 merged (needs tracked runs to register) |
+| **Depends on** | Card 2.4 part A only (DagsHub repo + token). **Runs parallel to 2.1** — build the loader, API wiring and all three tests against a run you log yourself locally; only the *final* promotion of the team's real best model waits for 2.1 to merge. |
 | **Files** | `api/main.py` · `src/registry.py` · new `scripts/register_model.py` · `tests/test_api.py` · `.env.example` · README API section |
 
 **Why:** a model registry decouples "a new model exists" from "the API serves it" —
@@ -129,12 +147,15 @@ deployment becomes a one-step alias move, rollback is moving the alias back.
 
 ### Subtasks
 
-- [ ] Promotion tooling (`scripts/register_model.py`, built with Luc after 2.1 lands): a
+- [ ] Promotion tooling (`scripts/register_model.py`): a
       small CLI that, given a schema and optionally a run id, finds the chosen run in the
       `trustpilot-reviews` experiment (default: latest run of the best model, currently
       LogReg 3-class), registers its `model` artifact under the schema's registry name, and
       points the `production` alias at the new version. Use the MLflow client API for alias
-      assignment — aliases, not deprecated stages. Rollback = pointing the alias back at the
+      assignment — aliases, not deprecated stages. Build and test it against a run **you log
+      yourself** (log a quick LogReg pipeline to your local `mlruns/`); the *final* promotion
+      of the team's real best model is the one step that waits for 2.1 to merge. Rollback =
+      pointing the alias back at the
       previous version; document both flows.
 - [ ] `src/registry.py`: add a `load_production(schema)` helper implementing the precedence
       above, returning the pipeline plus a source marker (registry vs local joblib). Import
