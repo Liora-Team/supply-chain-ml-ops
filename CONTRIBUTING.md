@@ -99,8 +99,11 @@ Keep PRs reviewable: aim for < ~400 changed lines. Split large work.
 
 - **Never commit large files.** `data/` and large `models/` weights are ignored by git and
   versioned with **DVC** from Phase 2 (canonical rule — other docs link here). The fine-tuned
-  DistilBERT weights (255 MB+) live on the HF hub / DVC remote — never in a git commit; point
-  at them via the `DISTILBERT_3CLASS` / `DISTILBERT_5CLASS` env vars (see `.env.example`).
+  DistilBERT weights (2 × ~255 MB) are DVC-tracked at `models/distilbert_{3,5}class/final/`
+  and restored by `make pull` (until that lands in Phase 2, the interim source is the team
+  GDrive zip — link in `docs/TODO.md`, Card 2.3). The `DISTILBERT_3CLASS` /
+  `DISTILBERT_5CLASS` env vars stay as the override for an HF hub id or a custom path
+  (see `.env.example`).
 - Small runtime artifacts (a few hundred KB: `eda_summary.json`, `eda_sample.parquet`)
   may be committed by explicitly un-ignoring them in `.gitignore`.
 - **Document data transformations and features** as you add them (Data Management good

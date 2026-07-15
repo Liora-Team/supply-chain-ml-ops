@@ -19,6 +19,14 @@ Owners follow the rotation matrix ([PROJECT_MANAGEMENT.md §1](PROJECT_MANAGEMEN
 | **Dilshana** | D — serving | A — modeling | B — infra |
 | **Luc** | A — modeling | B — infra | C — data |
 
+**Course module calendar** (plan work so the module lands just before you need it):
+
+| Course sprint | Dates | Modules | Feeds our cards |
+|---|---|---|---|
+| Sprint 3 — Versioning and Deployment | Jul 20 – Jul 31 | **Airflow (mandatory)** · BentoML serving | 3.1, 3.2 (Airflow DAG) — module ends a week before the M3 target |
+| Sprint 4 — Monitoring | Aug 3 – Aug 26 | **Drift Monitoring (mandatory)** · Prometheus & Grafana | 4.1, 4.2 — module arrives *before* M4; both can start during the M3 window if capacity allows |
+| Sprint 5 — Scaling & MLOps platform | Aug 27 – Sep 18 | Kubernetes | 3.4's k8s half — module lands **after** the M3 target; see the timing note on card 3.4 |
+
 **Architecture decisions (agreed Jul 15, 2026):**
 
 - **No model binaries in git.** Git holds code + small metadata (JSON metric sidecars);
@@ -124,9 +132,10 @@ weighted-F1, accuracy), and the fitted pipeline object itself.
 - [ ] **Backfill DistilBERT eval** (repo-review fix): the two DistilBERT eval JSONs under
       `models/pipelines/` carry null weighted-F1/accuracy (only the 3-class macro-F1 0.6811
       is real, transcribed from a notebook not in the repo). Log the known values as one
-      MLflow run tagged as a backfill; fill the JSON nulls if the eval can be re-run,
-      otherwise add a note field in the JSON stating they are unavailable. Keep the structure
-      `src/registry.py::_scan_bert` reads (metrics nested under the phase-2 key).
+      MLflow run tagged as a backfill. The weights themselves are being DVC-tracked in Card
+      2.3 (source: Marco's machine / team GDrive) — once restored, **re-run the eval on the
+      test split** to fill the null fields properly; coordinate with Mykola. Keep the
+      structure `src/registry.py::_scan_bert` reads (metrics nested under the phase-2 key).
 - [ ] Smoke test (new `tests/test_tracking.py`): point the tracking URI at a pytest tmp
       directory, run one tiny fit through the same logging path, assert a run exists with a
       macro-F1 metric and a model artifact. Must not need network — CI has no MLflow server.
@@ -222,7 +231,7 @@ git gives code, and the repo stays small.
 |---|---|
 | `data/processed/train.csv` + `test.csv` (~123k rows) | **DVC** |
 | **all** `models/pipelines/*.joblib` — the 9 currently committed (incl. the 10.8 MB RF 3-class) **plus** the git-ignored 64 MB RF 5-class | **DVC** (migrate out of git) |
-| DistilBERT weights, when they arrive | **DVC** (or HF hub via env vars — CONTRIBUTING §7) |
+| DistilBERT fine-tune dirs `models/distilbert_{3,5}class/final/` (2 × ~255 MB) | **DVC** — source: Marco's machine; interim backup: team GDrive `Liora - resources/supply_chain_resources/Archive.zip` (<https://drive.google.com/drive/folders/1IFYanbdAT6WlG7RQzFVC5C5fUyp8u3yQ>) |
 | all JSON metric sidecars (`models/checkpoints/*.json`, `models/pipelines/*.json`) | **git** — small metadata, the leaderboard reads them without DVC |
 | `data/processed/eda_sample.parquet` + `eda_summary.json` | **git** — small committed EDA artifacts |
 
@@ -246,6 +255,13 @@ git gives code, and the repo stays small.
       5-class weight (rebuild with `make train` if absent locally). All JSON sidecars stay in
       git. Clean up the now-obsolete joblib ignore/un-ignore lines in the root `.gitignore` —
       DVC writes its own.
+- [ ] **DistilBERT weights into DVC:** get the two fine-tune directories from Marco (source
+      of truth is his machine; the team GDrive `Archive.zip` linked in the table above is
+      the interim backup), place them at `models/distilbert_3class/final/` and
+      `models/distilbert_5class/final/` (the exact default paths `src/registry.py` scans),
+      then DVC-track both directories. After `make pull` the registry should mark both bert
+      entries loadable with no env vars set — the `DISTILBERT_*` vars stay as the override
+      for HF-hub ids or custom paths.
 - [ ] Publish in the right order: commit the `.dvc` pointer files, DVC-managed ignore files
       and `.dvc/config` to git; push the binaries to the remote with DVC **before** pushing
       the git branch, so reviewers can pull immediately.
@@ -265,9 +281,10 @@ git gives code, and the repo stays small.
 
 ### Done when
 
-Fresh clone + credentials + `make pull` restores CSVs and all 10 weights, then `make test`
-and `make api` pass; CI is green pulling via the repo secret; `git ls-files` contains **zero
-`.joblib`** and no tracked file over ~1 MB except `uv.lock`.
+Fresh clone + credentials + `make pull` restores CSVs, all 10 classical weights **and both
+DistilBERT dirs** (registry marks the bert entries loadable), then `make test` and `make api`
+pass; CI is green pulling via the repo secret; `git ls-files` contains **zero `.joblib`** and
+no tracked file over ~1 MB except `uv.lock`.
 
 ---
 
@@ -373,6 +390,13 @@ Open tooling decisions are marked **[decide at M3 kickoff]** — settle them in 
 check-in of the phase, record the choice as a short ADR note under `docs/`
 ([CONTRIBUTING.md §8](../CONTRIBUTING.md)).
 
+Two decisions already made by the course calendar (record both as ADR notes):
+- **Orchestrator = Airflow** — the mandatory Sprint-3 module (Jul 20–31), ends a week before
+  the M3 target. No Prefect debate needed.
+- **Serving stays FastAPI** — Sprint 3 also teaches BentoML, but our FastAPI service is
+  built, tested and containerized since Phase 1; the BentoML module is reference material,
+  a swap is not planned.
+
 ---
 
 ## Card 3.1 — Orchestrated pipeline, data half
@@ -390,8 +414,9 @@ runs from one trigger instead of tribal knowledge.
 
 ### Subtasks
 
-- [ ] **[decide at M3 kickoff]** Orchestrator: Airflow vs Prefect — one decision covering
-      both 3.1 and 3.2 (they are two halves of the same DAG). Record as ADR.
+- [ ] Orchestrator is **Airflow** (mandatory course module, Sprint 3 Jul 20–31 — see the
+      calendar at the top of this file); one stack for both 3.1 and 3.2 (two halves of the
+      same DAG). Record the one-line ADR.
 - [ ] Agree the 3.1 ↔ 3.2 interface with Dilshana before coding: the data half ends by
       producing versioned `data/processed/` (fresh CSVs, DVC-tracked and pushed); the model
       half consumes exactly that. Write it down in the DAG module docstring.
@@ -418,7 +443,7 @@ the run is visible (with per-step status) in the orchestrator UI.
 | **Assignee** | **Dilshana** |
 | **Labels** | `phase-3` `type:model` `priority:med` |
 | **Branch** | `feature/di-dag-model` (from `dev`) |
-| **Depends on** | 3.1's interface (versioned `data/processed/`); the orchestrator choice is shared. |
+| **Depends on** | 3.1's interface (versioned `data/processed/`); same Airflow stack as 3.1. |
 | **Files** | same `dags/`/`flows/` module tree as 3.1 · reuses `scripts/build_pipelines.py` + `scripts/register_model.py` (from 2.2) |
 
 **Why:** a conditional-promotion gate turns "we retrained" into "we retrained and deployed
@@ -494,6 +519,11 @@ still answers bare (compose healthcheck stays green).
 **Why:** continuous deployment with rollback means a bad release is a one-command revert, and
 replicas mean one crashed container doesn't take the service down.
 
+**Course timing:** the Kubernetes module is **Sprint 5 (Aug 27 – Sep 18) — after the M3
+target (Aug 7)**. Land the CI/CD half (build, SHA tags, deploy, rollback) by the M3 target;
+schedule the k8s-manifests half for the Sprint-5 window (tail of M3 / start of M4) — agree
+the exact split with the mentor at M3 kickoff.
+
 ### Subtasks
 
 - [ ] **[decide at M3 kickoff]** Deployment target: local cluster (kind/minikube — zero
@@ -549,6 +579,9 @@ category slicing of the existing 123k — is the agreed first pass).
 **Why:** drift detection compares live inputs against the training distribution — the early
 warning that model quality is about to drop, before labels confirm it.
 
+**Course timing:** the mandatory Drift Monitoring module is Sprint 4 (Aug 3–26) — it lands
+well before the M4 target, so this card can start during the M3 window if capacity allows.
+
 ### Subtasks
 
 - [ ] **Prerequisite first:** persist incoming `/predict` requests (text + predicted label +
@@ -583,6 +616,9 @@ consumable by 4.2 (alert) and 4.4 (retrain trigger).
 
 **Why:** dashboards and alert rules are how a team *operates* a model — latency, throughput
 and drift on one screen, with a ping when a threshold breaks.
+
+**Course timing:** the Prometheus & Grafana module is Sprint 4 (Aug 3–26) — it lands well
+before the M4 target, so this card can start during the M3 window if capacity allows.
 
 ### Subtasks
 

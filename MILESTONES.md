@@ -134,8 +134,9 @@ the multi-service stack runs.
 
 - **Why:** orchestration encodes the pipeline's order and retries in code, so the whole chain
   runs from one trigger instead of tribal knowledge.
-- **Do:** the ingest → preprocess steps of an Airflow/Prefect DAG, DVC-aware (pull inputs,
-  push outputs). Coordinates with Task 3.2 (the model half of the same DAG).
+- **Do:** the ingest → preprocess steps of an **Airflow** DAG (mandatory course module,
+  Sprint 3 Jul 20–31), DVC-aware (pull inputs, push outputs). Coordinates with Task 3.2
+  (the model half of the same DAG).
 - **Done when:** triggering the DAG produces fresh, versioned `data/processed/` without manual steps.
 - **Gotcha:** the DAG runs in its own container — mount/pull data
   explicitly, don't assume the host's files.
@@ -167,7 +168,9 @@ the multi-service stack runs.
   and replicas mean one crashed container doesn't take the service down.
 - **Files:** `.github/workflows/ci.yml`, new `k8s/` manifests.
 - **Do:** extend CI with a build+deploy job; keep the previous image tag for rollback.
-  Write Kubernetes manifests (Deployment + Service) from the compose setup.
+  Write Kubernetes manifests (Deployment + Service) from the compose setup. *Course timing:*
+  the k8s module is Sprint 5 (Aug 27 – Sep 18), after the M3 target — land the CI/CD half by
+  Aug 7, schedule the k8s half in the Sprint-5 window (agree with the mentor).
 - **Done when:** a push deploys; a bad deploy reverts in one step; the API runs with >1 replica
   behind a service.
 - **Gotcha:** tag images with the git SHA, not `latest` — `latest`
