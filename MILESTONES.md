@@ -6,7 +6,7 @@ can pick it up cold:
 
 > **Task** — what to do · **Why** — the MLOps concept it teaches (one sentence) ·
 > **Owner** — who builds it (rotation → `docs/PROJECT_MANAGEMENT.md`) · **Files** — where ·
-> **Run** — command(s) · **Done when** — a testable acceptance check · **Effort** — rough size ·
+> **Run** — command(s) · **Done when** — a testable acceptance check ·
 > **Gotcha** — the thing that'll bite you.
 
 Project framing (what we predict and why) → [`docs/ML_CANVAS.md`](docs/ML_CANVAS.md).
@@ -43,6 +43,9 @@ baseline pipelines (`make train`), 15 tests, `api/main.py`, CI workflow, docs.
 
 **Goal:** trace every experiment, version data + models, split into services.
 
+> 📋 **Board-ready breakdown** — per-member cards with subtask checklists, branch names and
+> acceptance criteria: [`docs/TODO.md`](docs/TODO.md).
+
 **What you'll learn:**
 - **Experiment tracking** — never again wonder "which run produced this model?"
 - **Data & model versioning** — give datasets and weights the same audit trail git gives code.
@@ -59,19 +62,20 @@ baseline pipelines (`make train`), 15 tests, `api/main.py`, CI workflow, docs.
   `mlflow.sklearn.log_model(pipe, "model")`.
 - **Run:** `mlflow ui` (or the compose service from Task 2.4) → `http://localhost:5000`.
 - **Done when:** a `make train` run shows up in the MLflow UI with params + macro-F1 + the artifact.
-- **Effort:** ~half a day. · **Gotcha:** point `MLFLOW_TRACKING_URI` at the server so runs land
+- **Gotcha:** point `MLFLOW_TRACKING_URI` at the server so runs land
   in one place, not local `./mlruns`.
 
 ### Task 2.2 — Model registry, API side · **Owner: Dilshana**
 
-- **Why:** a model registry — a versioned catalog with promote/rollback stages — decouples
-  "a new model exists" from "the API serves it": deployment becomes a one-click promotion.
+- **Why:** a model registry — a versioned catalog with promote/rollback — decouples
+  "a new model exists" from "the API serves it": deployment becomes a one-step alias move.
 - **Files:** `api/main.py`, `src/registry.py`, `tests/test_api.py`.
-- **Do:** register the best run's model (with Luc); add `Staging`/`Production` stages; have the
-  API optionally load from the registry (`models:/<name>/Production`) instead of the local joblib.
-  Add tests for both load paths.
-- **Done when:** promoting a model in MLflow changes what the API serves (no code edit).
-- **Effort:** ~1 day. · **Gotcha:** keep the local-joblib path as a fallback so the API still
+- **Do:** register the best run's model (with Luc); point a `production` **alias** at the
+  chosen version (stage transitions are deprecated in MLflow 2.x — use aliases); have the
+  API optionally load from the registry (`models:/<name>@production`) instead of the local
+  joblib. Add tests for both load paths.
+- **Done when:** moving the `production` alias in MLflow changes what the API serves (no code edit).
+- **Gotcha:** keep the local-joblib path as a fallback so the API still
   boots offline (and CI stays green without an MLflow server).
 
 ### Task 2.3 — Data + model versioning with DVC · **Owner: Mykola**
@@ -83,7 +87,7 @@ baseline pipelines (`make train`), 15 tests, `api/main.py`, CI workflow, docs.
   DistilBERT weights) → `dvc remote add`.
 - **Files:** commit the small `*.dvc` pointers; the data itself goes to the remote.
 - **Done when:** `dvc pull` on a fresh clone restores data + large models; git stays small.
-- **Effort:** ~1 day. · **Gotcha:** the small served pipelines stay in git (API/tests need them
+- **Gotcha:** the small served pipelines stay in git (API/tests need them
   from a clean clone) — only version the *large/generated* artifacts with DVC. DistilBERT
   weights load via env vars (→ [CONTRIBUTING.md §7](CONTRIBUTING.md#7-data--model-handling)).
 
@@ -98,7 +102,7 @@ baseline pipelines (`make train`), 15 tests, `api/main.py`, CI workflow, docs.
   weights via the `DISTILBERT_*` env vars ([CONTRIBUTING.md §7](CONTRIBUTING.md#7-data--model-handling)).
 - **Done when:** `docker compose up` brings the whole stack; the API reads models the training
   service produced and MLflow tracked.
-- **Effort:** ~1–2 days. · **Gotcha:** services talk over the compose network — use service
+- **Gotcha:** services talk over the compose network — use service
   names (`http://mlflow:5000`), not `localhost`, inside containers.
 
 **Milestone done when:** an experiment is tracked in MLflow, `dvc pull` restores data/models,
@@ -124,7 +128,7 @@ the multi-service stack runs.
 - **Do:** the ingest → preprocess steps of an Airflow/Prefect DAG, DVC-aware (pull inputs,
   push outputs). Coordinates with Task 3.2 (the model half of the same DAG).
 - **Done when:** triggering the DAG produces fresh, versioned `data/processed/` without manual steps.
-- **Effort:** ~1–2 days. · **Gotcha:** the DAG runs in its own container — mount/pull data
+- **Gotcha:** the DAG runs in its own container — mount/pull data
   explicitly, don't assume the host's files.
 
 ### Task 3.2 — Orchestrated pipeline, model half · **Owner: Dilshana**
@@ -134,7 +138,7 @@ the multi-service stack runs.
 - **Do:** the train → evaluate → conditionally-promote steps of the DAG: promote to
   `Production` only if macro-F1 beats the current baseline (→ `docs/ML_CANVAS.md`).
 - **Done when:** one trigger runs the whole chain and a *worse* model is **not** promoted.
-- **Effort:** ~1–2 days. · **Gotcha:** compare against the *currently served* model's metric,
+- **Gotcha:** compare against the *currently served* model's metric,
   not a hard-coded number.
 
 ### Task 3.3 — API security · **Owner: Mykola**
@@ -145,7 +149,7 @@ the multi-service stack runs.
 - **Do:** add auth (API key / JWT) as a FastAPI dependency; validate/limit input size; add
   basic rate limiting. Tests for authorized/unauthorized/flooded calls.
 - **Done when:** unauthenticated `/predict` is rejected (401/403) and tests prove it.
-- **Effort:** ~1 day. · **Gotcha:** keep `/health` unauthenticated — Docker healthchecks and
+- **Gotcha:** keep `/health` unauthenticated — Docker healthchecks and
   Kubernetes probes need it.
 
 ### Task 3.4 — CI/CD + scalable deployment · **Owner: Luc**
@@ -157,7 +161,7 @@ the multi-service stack runs.
   Write Kubernetes manifests (Deployment + Service) from the compose setup.
 - **Done when:** a push deploys; a bad deploy reverts in one step; the API runs with >1 replica
   behind a service.
-- **Effort:** ~1–2 days. · **Gotcha:** tag images with the git SHA, not `latest` — `latest`
+- **Gotcha:** tag images with the git SHA, not `latest` — `latest`
   makes rollback meaningless.
 
 **Kickoff mapping:** Phase 3 "Orchestration & Deployment".
@@ -183,7 +187,7 @@ the multi-service stack runs.
   data-quality checks. Simulate drift by replaying a skewed category slice
   (`docs/DATA_SOURCES.md`, Option 3).
 - **Done when:** an injected shift produces a drift report/flag.
-- **Effort:** ~1–2 days. · **Gotcha:** you need to *store* incoming requests to have a
+- **Gotcha:** you need to *store* incoming requests to have a
   "current" dataset — add that first.
 
 ### Task 4.2 — Dashboards + alerts with Prometheus & Grafana · **Owner: Dilshana**
@@ -195,7 +199,7 @@ the multi-service stack runs.
 - **Do:** scrape the API's `/metrics` (Task 4.3); dashboards for latency, throughput, drift,
   system health; alert rules on top.
 - **Done when:** a Grafana board shows live metrics and an alert fires on drift.
-- **Effort:** ~1–2 days. · **Gotcha:** Prometheus scrapes over the compose network — target
+- **Gotcha:** Prometheus scrapes over the compose network — target
   `api:8000`, not `localhost`.
 
 ### Task 4.3 — Metrics endpoint, API docs & maintenance guide · **Owner: Marco**
@@ -207,7 +211,6 @@ the multi-service stack runs.
 - **Done when:** `/metrics` serves Prometheus format; the maintenance guide covers
   update/rollback/retrain procedures. *Nice-to-have:* polish the Streamlit demo
   (`make setup-full && make app`).
-- **Effort:** ~1 day.
 
 ### Task 4.4 — Automated retraining · **Owner: Luc**
 
@@ -216,7 +219,7 @@ the multi-service stack runs.
 - **Do:** trigger the M3 DAG on drift signal (Task 4.1) or schedule; auto-promote only if the
   new model beats the current one; replay new data per `docs/DATA_SOURCES.md` Option 3.
 - **Done when:** retraining runs unattended and the API picks up the new model.
-- **Effort:** ~1–2 days. · **Gotcha:** guard against retrain loops — a drift flag that never
+- **Gotcha:** guard against retrain loops — a drift flag that never
   clears will retrain forever; add a cooldown.
 
 **Kickoff mapping:** Phase 4 "Monitoring & Maintenance".
