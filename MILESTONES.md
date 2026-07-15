@@ -14,15 +14,19 @@ All other docs → the **Docs map** in [`README.md`](README.md).
 
 ## Roadmap
 
-| Phase | Focus | Target date | Sprint | Status |
-|-------|-------|-------------|--------|--------|
-| 1 | Foundations & Containerization | **Jul 10** | Sprint 1 | 🟢 done |
-| 2 | Microservices, Tracking & Versioning | **Jul 24** | Sprint 2–3 | ⚪ next |
-| 3 | Orchestration & Deployment | **Aug 7** | Sprint 4–5 | ⚪ |
-| 4 | Monitoring & Maintenance | **Sep 4** | Sprint 6–7 | ⚪ |
+| Phase | Focus | Target date | Project week(s) | Status |
+|-------|-------|-------------|-----------------|--------|
+| 1 | Foundations & Containerization | **Jul 10** | 1 | 🟢 done |
+| 2 | Microservices, Tracking & Versioning | **Jul 24** | 2–3 | ⚪ next |
+| 3 | Orchestration & Deployment | **Aug 7** | 4–5 | ⚪ |
+| 4 | Monitoring & Maintenance | **Sep 4** | 6–7 | ⚪ |
+| — | **Project freeze** — everything done & demoable | **Sep 9** | — | ⚪ |
 | — | **Final defence** | **Sep 14** | — | ⚪ |
 
-One sprint ≈ one week, aligned to the weekly check-in.
+One project week per weekly check-in. (Not the course's multi-week "Sprint N" module
+windows — those are mapped to cards in `docs/TODO.md`'s course calendar.)
+**Freeze rule:** the project must be ready **≥5 days before the defence** — after Sep 9,
+only rehearsal, slides and demo recording; zero feature work.
 
 ---
 
@@ -169,8 +173,8 @@ the multi-service stack runs.
 - **Files:** `.github/workflows/ci.yml`, new `k8s/` manifests.
 - **Do:** extend CI with a build+deploy job; keep the previous image tag for rollback.
   Write Kubernetes manifests (Deployment + Service) from the compose setup. *Course timing:*
-  the k8s module is Sprint 5 (Aug 27 – Sep 18), after the M3 target — land the CI/CD half by
-  Aug 7, schedule the k8s half in the Sprint-5 window (agree with the mentor).
+  the k8s module opens Aug 27 (after the M3 target) — land the CI/CD half by Aug 7, do the
+  k8s hands-on Aug 27 – Sep 4, hard stop at the Sep 9 freeze (agree scope with the mentor).
 - **Done when:** a push deploys; a bad deploy reverts in one step; the API runs with >1 replica
   behind a service.
 - **Gotcha:** tag images with the git SHA, not `latest` — `latest`
@@ -241,7 +245,10 @@ the multi-service stack runs.
 
 ---
 
-## Milestone 5 — Defence · **Sep 14**
+## Milestone 5 — Defence · **Sep 14** (freeze **Sep 9**)
+
+Everything below happens in the freeze window Sep 9–14 — the system itself is finished and
+demoable by Sep 9.
 
 - End-to-end demo script: data → train (tracked) → deploy → predict → monitor → retrain.
 - Slides: problem (→ `docs/ML_CANVAS.md`), architecture diagram, results (macro-F1 vs

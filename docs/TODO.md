@@ -2,7 +2,9 @@
 
 **The big picture:** trace every experiment (MLflow), version data + models (DVC), split into
 services (M2, **Jul 24**) → orchestrate the pipeline, secure and deploy (M3, **Aug 7**) →
-monitor, detect drift, retrain automatically (M4, **Sep 4**). Defence **Sep 14**.
+monitor, detect drift, retrain automatically (M4, **Sep 4**) → **project freeze Sep 9**
+(ready ≥5 days before the defence; Sep 9–14 is rehearsal/slides/demo-recording only) →
+defence **Sep 14**.
 
 This file is the **copy-paste source for the GitHub Project board**: one issue per card
 (title, labels, assignee below), card body = issue description, checklists stay as task lists
@@ -25,7 +27,11 @@ Owners follow the rotation matrix ([PROJECT_MANAGEMENT.md §1](PROJECT_MANAGEMEN
 |---|---|---|---|
 | Sprint 3 — Versioning and Deployment | Jul 20 – Jul 31 | **Airflow (mandatory)** · BentoML serving | 3.1, 3.2 (Airflow DAG) — module ends a week before the M3 target |
 | Sprint 4 — Monitoring | Aug 3 – Aug 26 | **Drift Monitoring (mandatory)** · Prometheus & Grafana | 4.1, 4.2 — module arrives *before* M4; both can start during the M3 window if capacity allows |
-| Sprint 5 — Scaling & MLOps platform | Aug 27 – Sep 18 | Kubernetes | 3.4's k8s half — module lands **after** the M3 target; see the timing note on card 3.4 |
+| Sprint 5 — Scaling & MLOps platform | Aug 27 – Sep 18 | Kubernetes | 3.4's k8s half — module lands **after** the M3 target; k8s work itself must finish by **Sep 4** (the module window outlives the Sep 9 freeze and the Sep 14 defence); see card 3.4 |
+
+Course "sprints" are the learning platform's multi-week module windows — not the project's
+weekly check-in cadence (that one is the "Project week(s)" column in
+[MILESTONES.md](../MILESTONES.md)).
 
 **Architecture decisions (agreed Jul 15, 2026):**
 
@@ -257,11 +263,15 @@ git gives code, and the repo stays small.
       DVC writes its own.
 - [ ] **DistilBERT weights into DVC:** get the two fine-tune directories from Marco (source
       of truth is his machine; the team GDrive `Archive.zip` linked in the table above is
-      the interim backup), place them at `models/distilbert_3class/final/` and
-      `models/distilbert_5class/final/` (the exact default paths `src/registry.py` scans),
-      then DVC-track both directories. After `make pull` the registry should mark both bert
-      entries loadable with no env vars set — the `DISTILBERT_*` vars stay as the override
-      for HF-hub ids or custom paths.
+      the interim backup — Marco: verify the zip contains both `final/` dirs), place them at
+      `models/distilbert_3class/final/` and `models/distilbert_5class/final/` (the exact
+      default paths `src/registry.py` scans), then DVC-track both directories. Each dir must
+      contain `config.json`, `model.safetensors` (~255 MB), `tokenizer.json`,
+      `tokenizer_config.json` (fast tokenizer — no `vocab.txt` needed) and
+      `eval_metrics.json`. Beware: in Marco's other project these dirs are **absolute-path
+      symlinks** — copy the *resolved* directories, not the links. After `make pull` the
+      registry should mark both bert entries loadable with no env vars set — the
+      `DISTILBERT_*` vars stay as the override for HF-hub ids or custom paths.
 - [ ] Publish in the right order: commit the `.dvc` pointer files, DVC-managed ignore files
       and `.dvc/config` to git; push the binaries to the remote with DVC **before** pushing
       the git branch, so reviewers can pull immediately.
@@ -519,10 +529,12 @@ still answers bare (compose healthcheck stays green).
 **Why:** continuous deployment with rollback means a bad release is a one-command revert, and
 replicas mean one crashed container doesn't take the service down.
 
-**Course timing:** the Kubernetes module is **Sprint 5 (Aug 27 – Sep 18) — after the M3
-target (Aug 7)**. Land the CI/CD half (build, SHA tags, deploy, rollback) by the M3 target;
-schedule the k8s-manifests half for the Sprint-5 window (tail of M3 / start of M4) — agree
-the exact split with the mentor at M3 kickoff.
+**Course timing:** the Kubernetes module opens **Aug 27 — after the M3 target (Aug 7)**.
+Land the CI/CD half (build, SHA tags, deploy, rollback) by the M3 target; do the k8s
+hands-on **Aug 27 – Sep 4** (the module's opening week), hard stop at the **Sep 9 project
+freeze**. If that's too tight, agree a reduced k8s scope with the mentor at M3 kickoff —
+never let it slip past Sep 4. (The module window officially runs to Sep 18 — past the
+freeze and the defence; the window is for *learning*, not for project work.)
 
 ### Subtasks
 
@@ -714,6 +726,8 @@ cooldown provably prevents a retrain loop.
 - [ ] `/metrics` in Prometheus format; MAINTENANCE.md runbooks complete
 - [ ] Drift signal triggers an unattended retrain; gate + cooldown behave
 - [ ] `dev → main` milestone merge done, tag `milestone-4`
+- [ ] **Sep 9 freeze respected** — demo rehearsed, no open feature PRs; Sep 9–14 is
+      rehearsal/slides only
 
 ---
 ---
