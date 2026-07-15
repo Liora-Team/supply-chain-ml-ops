@@ -2,7 +2,6 @@
 .venv/
 .git/
 .github/
-.gstack/
 __pycache__/
 **/__pycache__/
 .pytest_cache/
@@ -12,13 +11,10 @@ __pycache__/
 # Not needed by the API image
 tests/
 docs/
-notebooks/
 scripts/
-configs/
 pages/
 app.py
 data/
-requirements.txt
 *.pdf
 *.md
 .env

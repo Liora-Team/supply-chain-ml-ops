@@ -1,0 +1,30 @@
+# Local quality gate — runs on every commit. Mirrors the CI lint/format checks
+# (.github/workflows/ci.yml) plus secret scanning. Install once after `uv sync`:
+#   uv run pre-commit install
+default_stages: [pre-commit]
+
+repos:
+  # ruff + black + detect-secrets all run through `uv run` so they use the EXACT
+  # versions pinned in uv.lock — identical to CI, no drift, no extra toolchain.
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff (lint)
+        entry: uv run ruff check .
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: black
+        name: black (format check)
+        entry: uv run black --check .
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      # Secret scanning — blocks a token/credential from landing in history.
+      # New/changed findings must be cleared or added to .secrets.baseline.
+      - id: detect-secrets
+        name: detect secrets
+        entry: uv run detect-secrets-hook --baseline .secrets.baseline
+        language: system
+        exclude: ^uv\.lock$
