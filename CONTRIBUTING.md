@@ -101,9 +101,9 @@ Keep PRs reviewable: aim for < ~400 changed lines. Split large work.
   versioned with **DVC** from Phase 2 (canonical rule — other docs link here). The fine-tuned
   DistilBERT weights (2 × ~255 MB) are DVC-tracked at `models/distilbert_{3,5}class/final/`
   and restored by `make pull` (until that lands in Phase 2, the interim source is the team
-  GDrive zip — link in `docs/TODO.md`, Card 2.3). The `DISTILBERT_3CLASS` /
-  `DISTILBERT_5CLASS` env vars stay as the override for an HF hub id or a custom path
-  (see `.env.example`).
+  GDrive zip — link in `docs/TODO.md`, Card 2.3). DVC is the single model store — no HF-hub
+  hosting; the `DISTILBERT_3CLASS` / `DISTILBERT_5CLASS` env vars exist only to override
+  with a custom local path (see `.env.example`).
 - Small runtime artifacts (a few hundred KB: `eda_summary.json`, `eda_sample.parquet`)
   may be committed by explicitly un-ignoring them in `.gitignore`.
 - **Document data transformations and features** as you add them (Data Management good

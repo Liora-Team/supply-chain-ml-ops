@@ -45,6 +45,19 @@ weekly check-in cadence (that one is the "Project week(s)" column in
 - **Git flow uses the `dev` integration branch** — all PRs target `dev`; `dev → main` merges
   once per milestone, tagged ([CONTRIBUTING.md §3](../CONTRIBUTING.md)).
 
+**Security thread** (where each security aspect lives — one row per defence-slide bullet):
+
+| Aspect | Where it's handled |
+|---|---|
+| Secrets never in git | [CONTRIBUTING.md §7](../CONTRIBUTING.md) rule · DVC creds in git-ignored `--local` config (2.3) · `DAGSHUB_TOKEN` as Actions secret (2.4-A) |
+| Secret scanning | gitleaks pre-commit hook + GitHub secret scanning & push protection (2.4-A) |
+| Dependency vulnerabilities | Dependabot alerts (2.4-A) |
+| Container hardening | non-root user, pinned base image, no secrets in layers (2.4-B) |
+| Branch protection | PRs-only, CI required, review required on `main` + `dev` (2.4-A) |
+| API security | auth, input validation, rate limiting (3.3) |
+| Runtime secrets in prod | k8s Secrets, never baked into images (3.4) |
+| Data privacy | public dataset; PII + request-retention note in the maintenance guide (4.3) |
+
 **Shared env contract** (set in `.env`, documented in `.env.example`, values never committed):
 
 - `MLFLOW_TRACKING_URI` — the DagsHub MLflow endpoint of the team repo (the repo URL with the
@@ -271,7 +284,8 @@ git gives code, and the repo stays small.
       `eval_metrics.json`. Beware: in Marco's other project these dirs are **absolute-path
       symlinks** — copy the *resolved* directories, not the links. After `make pull` the
       registry should mark both bert entries loadable with no env vars set — the
-      `DISTILBERT_*` vars stay as the override for HF-hub ids or custom paths.
+      `DISTILBERT_*` vars stay only as an override for a custom local path (decision:
+      DVC is the single model store; no HF-hub hosting).
 - [ ] Publish in the right order: commit the `.dvc` pointer files, DVC-managed ignore files
       and `.dvc/config` to git; push the binaries to the remote with DVC **before** pushing
       the git branch, so reviewers can pull immediately.
@@ -325,9 +339,12 @@ hosted MLflow/DVC platform, the credentials, and the local quality gate.
       the top of this file. Tokens are never committed.
 - [ ] Add the **`DAGSHUB_TOKEN` repository secret** on GitHub (Settings → Secrets and
       variables → Actions) — Card 2.3's CI pull step authenticates with it.
-- [ ] New `.pre-commit-config.yaml` running the same ruff + black checks as CI; add
-      `pre-commit` to the `dev` dependency group and a `CONTRIBUTING.md §6` line telling
-      contributors to install the hook once.
+- [ ] New `.pre-commit-config.yaml` running the same ruff + black checks as CI, **plus a
+      gitleaks hook** (secret scanning before every commit — the cheapest insurance against
+      a token landing in history); add `pre-commit` to the `dev` dependency group and a
+      `CONTRIBUTING.md §6` line telling contributors to install the hook once.
+- [ ] GitHub Settings (manual, free, one-time): enable **secret scanning + push
+      protection** and **Dependabot alerts** under Security → Code security and analysis.
 - [ ] Prune dead `.dockerignore` entries (`notebooks/`, `configs/`, `requirements.txt`,
       `.gstack/`).
 
@@ -371,6 +388,9 @@ step that makes orchestration, scaling and independent deploys possible.
         ([CONTRIBUTING.md §7](../CONTRIBUTING.md)). Keeps the classical API image slim.
 - [ ] Inside containers, services address each other by **service name** over the compose
       network (e.g. the mlflow service on port 5000), never `localhost`.
+- [ ] Dockerfile hardening: run as a **non-root user**, pin the base image to an exact tag
+      (or digest), and keep secrets out of image layers — credentials arrive only via env
+      passthrough at runtime.
 - [ ] Verify: `docker compose up` → api + mlflow healthy (healthchecks pass); the train
       profile runs to completion and its run appears in the configured tracking server.
 
@@ -396,9 +416,10 @@ torch image.
 
 # Milestone 3 — Orchestration & Deployment · target **Aug 7**
 
-Open tooling decisions are marked **[decide at M3 kickoff]** — settle them in the first
-check-in of the phase, record the choice as a short ADR note under `docs/`
-([CONTRIBUTING.md §8](../CONTRIBUTING.md)).
+> ✏️ **Draft scope** — M3/M4 cards are written early to give the whole-project picture.
+> Treat subtask checklists as guidelines, not contracts: scope locks at the phase-kickoff
+> check-in, and each card's **Open questions** get answered first (record choices as short
+> ADR notes under `docs/` — [CONTRIBUTING.md §8](../CONTRIBUTING.md)).
 
 Two decisions already made by the course calendar (record both as ADR notes):
 - **Orchestrator = Airflow** — the mandatory Sprint-3 module (Jul 20–31), ends a week before
@@ -421,6 +442,14 @@ Two decisions already made by the course calendar (record both as ADR notes):
 
 **Why:** orchestration encodes the pipeline's order and retries in code, so the whole chain
 runs from one trigger instead of tribal knowledge.
+
+### Open questions (answer at M3 kickoff)
+
+- Airflow deployment shape — the official docker-compose file (heavy, many services) or a
+  slim custom setup?
+- Where do the DAG containers get DVC/DagsHub credentials — mounted `.dvc/config.local`,
+  env vars, or a compose secret?
+- M3 scope: manual-trigger only, or already scheduled?
 
 ### Subtasks
 
@@ -459,6 +488,14 @@ the run is visible (with per-step status) in the orchestrator UI.
 **Why:** a conditional-promotion gate turns "we retrained" into "we retrained and deployed
 *only if* it's better" — automation with a quality bar.
 
+### Open questions (answer at M3 kickoff)
+
+- Promotion rule: strictly better macro-F1, or require a margin (avoid alias churn on
+  noise-level improvements)?
+- Alias move fully automated inside the DAG, or a manual-approval step before promotion?
+- Retrain data in M3: same train/test splits, or already the Option-3 category slices
+  (DATA_SOURCES.md)?
+
 ### Subtasks
 
 - [ ] DAG steps, model half: pull the versioned data (from 3.1's output) → train (reuse the
@@ -494,10 +531,16 @@ One trigger runs data-pull → train → eval → gate end-to-end; a better mode
 **Why:** authentication, input validation and rate limiting are the minimum bar for exposing
 a model endpoint to the outside world.
 
+### Open questions (answer at M3 kickoff)
+
+- Auth scheme: static API key (header-based, simplest for a course exam) or JWT (closer to
+  production)? Record as ADR.
+- Rate-limit store: in-memory (fine at course scale) or redis (survives restarts, works
+  with >1 replica in 3.4)?
+- How are API keys distributed — one team key in `.env`, or per-member keys?
+
 ### Subtasks
 
-- [ ] **[decide at M3 kickoff]** Auth scheme: static API key (header-based, simplest for a
-      course exam) vs JWT (closer to production). Record as ADR.
 - [ ] Implement auth as a FastAPI dependency on `/predict` and `/models`; key/secret comes
       from env (documented in `.env.example`), never hard-coded.
 - [ ] **`/health` stays unauthenticated** — the Docker healthcheck and the k8s probes
@@ -536,10 +579,16 @@ freeze**. If that's too tight, agree a reduced k8s scope with the mentor at M3 k
 never let it slip past Sep 4. (The module window officially runs to Sep 18 — past the
 freeze and the defence; the window is for *learning*, not for project work.)
 
+### Open questions (answer at M3 kickoff)
+
+- Deployment target: local cluster (kind/minikube — zero cost, demoable on any laptop) or
+  a cloud cluster? Record as ADR.
+- Image registry: GHCR (free for the repo) or something else?
+- Deploy trigger: automatically on merge to `dev`, or manual workflow dispatch?
+- Rollback mechanism: `kubectl rollout undo` or re-apply the previous SHA tag?
+
 ### Subtasks
 
-- [ ] **[decide at M3 kickoff]** Deployment target: local cluster (kind/minikube — zero
-      cost, demoable on any laptop) vs a cloud cluster. Record as ADR.
 - [ ] Extend CI with a build job: build the `api` image, **tag with the git SHA** (never
       `latest` — `latest` makes rollback meaningless), push to a registry (GHCR is free for
       the repo).
@@ -573,6 +622,10 @@ documented); the API runs with >1 replica behind a Service.
 
 # Milestone 4 — Monitoring & Maintenance · target **Sep 4**
 
+> ✏️ **Draft scope** — same rule as M3: subtask checklists are guidelines; scope locks at
+> the M4 kickoff check-in after each card's **Open questions** are answered (short ADR
+> notes under `docs/`).
+
 New-data options for drift/retraining → [DATA_SOURCES.md](DATA_SOURCES.md) (Option 3 —
 category slicing of the existing 123k — is the agreed first pass).
 
@@ -593,6 +646,13 @@ warning that model quality is about to drop, before labels confirm it.
 
 **Course timing:** the mandatory Drift Monitoring module is Sprint 4 (Aug 3–26) — it lands
 well before the M4 target, so this card can start during the M3 window if capacity allows.
+
+### Open questions (answer at M4 kickoff)
+
+- Drift-flag format: file, endpoint, or Prometheus metric? Must be agreed three-ways with
+  4.2 (alerting) and 4.4 (retrain trigger) before building.
+- Request-store backend: append-only file, SQLite, or a volume-backed table?
+- Comparison window: how many recent requests count as "current"?
 
 ### Subtasks
 
@@ -632,6 +692,12 @@ and drift on one screen, with a ping when a threshold breaks.
 **Course timing:** the Prometheus & Grafana module is Sprint 4 (Aug 3–26) — it lands well
 before the M4 target, so this card can start during the M3 window if capacity allows.
 
+### Open questions (answer at M4 kickoff)
+
+- Alert routing: Grafana alerting UI only, or a webhook into the team channel?
+- Dashboards provisioned from JSON committed in-repo (reproducible) — which directory
+  layout?
+
 ### Subtasks
 
 - [ ] Compose services: prometheus (scrape config targeting the API's metrics endpoint **by
@@ -664,6 +730,13 @@ injected — reproducible from a clean clone via compose.
 **Why:** instrumentation exposes what the service is doing; the maintenance guide is the
 course's "could someone else operate this?" success criterion.
 
+### Open questions (answer at M4 kickoff)
+
+- Metric naming convention for the dashboards — agree the exact names with 4.2 before
+  either side builds.
+- Is `/metrics` reachable only inside the compose/k8s network, or exposed (and if exposed,
+  behind 3.3's auth)?
+
 ### Subtasks
 
 - [ ] Add `/metrics` in Prometheus format via the FastAPI instrumentator library (request
@@ -674,6 +747,9 @@ course's "could someone else operate this?" success criterion.
       alias move; deploy new code: CI/CD flow), **rollback** (alias back-move; image tag
       revert), **retrain** (trigger the DAG manually; what the gate does) — each as a short
       numbered runbook with the exact commands.
+- [ ] Data-privacy paragraph in the maintenance guide: public Trustpilot dataset; review
+      text can contain personal names but the service collects no accounts or user PII;
+      the stored `/predict` requests (4.1) get a documented retention/cleanup note.
 - [ ] Review the auto-generated FastAPI `/docs`: every endpoint has descriptions, request/
       response examples, auth documented (3.3). Fix gaps in the pydantic models/docstrings.
 - [ ] *Nice-to-have:* polish the Streamlit demo (`make setup-full && make app`) for the
@@ -698,6 +774,13 @@ update/rollback/retrain as runnable runbooks; `/docs` is complete.
 
 **Why:** this closes the MLOps loop — monitoring detects decay, the orchestrator retrains,
 the gate promotes only improvements, unattended.
+
+### Open questions (answer at M4 kickoff)
+
+- Trigger policy: on drift flag, on schedule, or both?
+- Cooldown length after a triggered retrain?
+- How is the "next category slice" chosen/rotated across retrains (Option 3,
+  DATA_SOURCES.md)?
 
 ### Subtasks
 
