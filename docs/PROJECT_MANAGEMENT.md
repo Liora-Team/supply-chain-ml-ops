@@ -48,9 +48,10 @@ Backlog  →  To Do  →  In Progress  →  In Review  →  Done
 
 - **Backlog** — captured but not scheduled.
 - **To Do** — pulled into the current sprint, has an owner.
-- **In Progress** — someone is actively working it (their branch is open).
-- **In Review** — PR opened, waiting on review + CI.
-- **Done** — PR squash-merged, CI green, docs updated (see Definition of Done).
+- **In Progress** — someone is actively working it (their branch is open, cut from `dev`).
+- **In Review** — PR opened against `dev`, waiting on review + CI.
+- **Done** — PR squash-merged into `dev`, CI green, docs updated (see Definition of Done).
+  `dev → main` merges happen once per milestone ([CONTRIBUTING.md §3](../CONTRIBUTING.md)).
 
 ### Labels
 

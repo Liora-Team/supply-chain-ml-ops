@@ -37,9 +37,14 @@ Then commit the updated `pyproject.toml` **and** `uv.lock` together.
 
 ## 3. Git workflow
 
-`main` is **protected**: no direct pushes. All changes land through a Pull Request.
+Two long-lived branches, both **protected** (no direct pushes — everything lands via PR):
 
-**Branch naming** (standardized):
+| Branch | Role |
+|--------|------|
+| `main` | Stable. Only receives `dev` merges at milestone boundaries (tagged, e.g. `milestone-2`). |
+| `dev`  | Integration branch — **the default target for every PR**. CI must be green here at all times. |
+
+Work branches are cut **from `dev`** and named:
 
 ```
 feature/<initials>-<short-slug>     e.g. feature/mk-dockerfile
@@ -47,7 +52,8 @@ fix/<initials>-<short-slug>         e.g. fix/di-tfidf-path
 docs/<initials>-<short-slug>        e.g. docs/ma-readme
 ```
 
-Keep branches small and short-lived. Rebase on `main` before opening a PR.
+Keep branches small and short-lived. Rebase on `dev` before opening a PR.
+At the end of each milestone a maintainer merges `dev → main` and tags it.
 
 ## 4. Commit messages — Conventional Commits
 
@@ -65,7 +71,7 @@ Types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`, `ci`.
 
 ## 5. Pull Requests
 
-1. Open a PR against `main`; link the issue it closes (`Closes #12`).
+1. Open a PR against `dev`; link the issue it closes (`Closes #12`).
 2. Fill the PR description: **what**, **why**, **how tested**.
 3. CI must be **green** (lint + tests).
 4. **At least 1 review** required before merge (Collaboration challenge → regular reviews).
