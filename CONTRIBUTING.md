@@ -81,6 +81,11 @@ Keep PRs reviewable: aim for < ~400 changed lines. Split large work.
 
 ## 6. Code style & quality
 
+- **Pre-commit hook** (install once, after `uv sync`): runs the same ruff + black checks as
+  CI plus a detect-secrets scan on every commit.
+  ```bash
+  uv run pre-commit install
+  ```
 - **Formatter/linter**: `ruff` (lint) + `black` (format). Run before pushing:
   ```bash
   uv run ruff check . && uv run black --check .
