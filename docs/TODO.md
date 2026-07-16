@@ -44,6 +44,11 @@ weekly check-in cadence (that one is the "Project week(s)" column in
   deprecated in MLflow 2.x.
 - **Git flow uses the `dev` integration branch** — all PRs target `dev`; `dev → main` merges
   once per milestone, tagged ([CONTRIBUTING.md §3](../CONTRIBUTING.md)).
+- **Reverse proxy = nginx.** A single public entry point fronts the stack — a `proxy` (nginx)
+  service in compose (Card 2.4-B), `nginx-ingress` in k8s (Card 3.4). **TLS terminates at the
+  proxy/ingress** (Card 3.3); internal services (`api`, `mlflow`) speak plain HTTP over the
+  private network and are never published directly. This is the reverse-proxy + TLS role —
+  **not** a load balancer (the k8s Service already balances replicas).
 
 **Security thread** (where each security aspect lives — one row per defence-slide bullet):
 
@@ -55,6 +60,8 @@ weekly check-in cadence (that one is the "Project week(s)" column in
 | Container hardening | non-root user, pinned base image, no secrets in layers (2.4-B) |
 | Branch protection | PRs-only, CI required, review required on `main` + `dev` (2.4-A) |
 | API security | auth, input validation, rate limiting (3.3) |
+| TLS / HTTPS in transit | terminated at the nginx reverse proxy (2.4-B) / ingress (3.4); app speaks HTTP behind it (3.3) |
+| Single public entry / internal services not exposed | nginx reverse proxy fronts the stack (2.4-B) / ingress (3.4) |
 | Runtime secrets in prod | k8s Secrets, never baked into images (3.4) |
 | Data privacy | public dataset; PII + request-retention note in the maintenance guide (4.3) |
 
@@ -72,9 +79,10 @@ M2: 2.4-A (Marco, day 1: dev branch + DagsHub + secrets)
       └─→ 2.1 (Luc: tracking) ─┐
       └─→ 2.2 (Dilshana: registry — parallel; final promote waits on 2.1)
       └─→ 2.3 (Mykola: DVC)    ├─→ M2 exit: dev → main, tag milestone-2
-      └─→ 2.4-B (Marco: compose split)
+      └─→ 2.4-B (Marco: compose split + nginx reverse proxy)
+      └─→ 2.5 (Marco: Ops dashboard — parallel, buildable now)
 M3: 3.1 (data DAG) ↔ 3.2 (model DAG — same orchestrator, agreed interface)
-    3.3 (API security) and 3.4 (CI/CD + k8s) fully parallel
+    3.3 (API security + TLS at the proxy) and 3.4 (CI/CD + k8s incl. ingress) fully parallel
 M4: 4.3 (/metrics) ─→ 4.2 (Prometheus/Grafana scrapes it)
     4.1 (drift) ─→ 4.4 (retrain trigger consumes the drift signal)
 ```
@@ -364,7 +372,7 @@ black locally on commit.
 | **Labels** | `phase-2` `type:infra` `priority:high` |
 | **Branch** | `feature/ma-compose-services` (from `dev`) |
 | **Depends on** | Card 2.4-A (env contract exists). Parallel to 2.1/2.2/2.3. |
-| **Files** | `docker-compose.yml` · `Dockerfile` · README (compose notes) |
+| **Files** | `docker-compose.yml` · `Dockerfile` · `deploy/nginx/nginx.conf` (new) · README (compose notes) |
 
 **Why:** one container per responsibility (API / training / tracking) is the architecture
 step that makes orchestration, scaling and independent deploys possible.
@@ -386,19 +394,27 @@ step that makes orchestration, scaling and independent deploys possible.
       - **bert**: DistilBERT as its own torch-only service from the `bert` Dockerfile
         target; behind its own profile; weights located via the `DISTILBERT_*` env vars
         ([CONTRIBUTING.md §7](../CONTRIBUTING.md)). Keeps the classical API image slim.
+      - **proxy** (nginx): the **single public entry point** — publishes port 80 (443 when TLS
+        lands in Card 3.3) and reverse-proxies `/` → `api:8000` and `/mlflow` → `mlflow:5000`
+        over the compose network; `api` and `mlflow` stop being published directly. Config in
+        `deploy/nginx/nginx.conf`. An `upstream` block lets it round-robin when `api` is scaled
+        (`docker compose up --scale api=N`) — the LB comes free, but the point here is the
+        single entry + a home for TLS.
 - [ ] Inside containers, services address each other by **service name** over the compose
       network (e.g. the mlflow service on port 5000), never `localhost`.
 - [ ] Dockerfile hardening: run as a **non-root user**, pin the base image to an exact tag
       (or digest), and keep secrets out of image layers — credentials arrive only via env
       passthrough at runtime.
-- [ ] Verify: `docker compose up` → api + mlflow healthy (healthchecks pass); the train
+- [ ] Verify: `docker compose up` → api + mlflow healthy (healthchecks pass) and reachable
+      **through the proxy** (`curl localhost/health` hits the api via nginx); the train
       profile runs to completion and its run appears in the configured tracking server.
 
 ### Done when
 
-`docker compose up` brings up `api` + `mlflow` healthy; the train profile runs a tracked
-training whose model the API can then serve; the bert profile builds and starts its own
-torch image.
+`docker compose up` brings up `api` + `mlflow` healthy behind the `proxy` (nginx) as the single
+published entry (`curl localhost/health` reaches the api through nginx); the train profile runs
+a tracked training whose model the API can then serve; the bert profile builds and starts its
+own torch image.
 
 ---
 
@@ -453,6 +469,7 @@ shows live rows + git commit, and no secret value is ever printed.
 - [ ] `git ls-files` contains no model binaries
 - [ ] Moving the `production` alias changes what the API serves
 - [ ] The multi-service stack runs (`docker compose up`)
+- [ ] The `proxy` (nginx) fronts the stack — `curl localhost/health` reaches the api through nginx
 - [ ] `dev → main` milestone merge done, tag `milestone-2`
 
 ---
@@ -570,7 +587,7 @@ One trigger runs data-pull → train → eval → gate end-to-end; a better mode
 | **Labels** | `phase-3` `type:api` `priority:med` |
 | **Branch** | `feature/mk-api-security` (from `dev`) |
 | **Depends on** | — fully parallel within M3. |
-| **Files** | `api/main.py` · `tests/test_api.py` · `.env.example` · README API section |
+| **Files** | `api/main.py` · `tests/test_api.py` · `.env.example` · `deploy/nginx/nginx.conf` (TLS server block) · README API section |
 
 **Why:** authentication, input validation and rate limiting are the minimum bar for exposing
 a model endpoint to the outside world.
@@ -582,6 +599,8 @@ a model endpoint to the outside world.
 - Rate-limit store: in-memory (fine at course scale) or redis (survives restarts, works
   with >1 replica in 3.4)?
 - How are API keys distributed — one team key in `.env`, or per-member keys?
+- TLS cert: self-signed for the demo, or a real cert (mkcert locally / Let's Encrypt via
+  cert-manager in k8s)? Record as ADR.
 
 ### Subtasks
 
@@ -593,13 +612,17 @@ a model endpoint to the outside world.
       with clear 4xx errors (extend the existing pydantic models).
 - [ ] Basic rate limiting per client (middleware or dependency; in-memory is fine at course
       scale — note the production caveat in the README).
+- [ ] **TLS/HTTPS termination** at the nginx reverse proxy (Card 2.4-B): serve 443 with a cert
+      (self-signed is acceptable for the course demo), redirect 80 → 443; the app stays plain
+      HTTP behind the proxy. In k8s the same terminates at the ingress (Card 3.4).
 - [ ] Tests: authorized call passes; missing/wrong key → 401/403; oversized payload → 4xx;
       burst beyond the limit → 429. Existing tests updated to authenticate.
 
 ### Done when
 
 Unauthenticated `/predict` is rejected (401/403) and tests prove all four paths; `/health`
-still answers bare (compose healthcheck stays green).
+still answers bare (compose healthcheck stays green); external traffic is served over HTTPS
+(TLS terminated at the nginx proxy / ingress).
 
 ---
 
@@ -611,7 +634,7 @@ still answers bare (compose healthcheck stays green).
 | **Labels** | `phase-3` `type:infra` `priority:med` |
 | **Branch** | `feature/lu-cicd-k8s` (from `dev`) |
 | **Depends on** | 2.4-B's Dockerfile targets. Parallel to the rest of M3. |
-| **Files** | `.github/workflows/` (build/deploy job) · new `k8s/` manifests · README deploy section |
+| **Files** | `.github/workflows/` (build/deploy job) · new `k8s/` manifests (incl. `k8s/ingress.yaml`) · README deploy section |
 
 **Why:** continuous deployment with rollback means a bad release is a one-command revert, and
 replicas mean one crashed container doesn't take the service down.
@@ -630,6 +653,8 @@ freeze and the defence; the window is for *learning*, not for project work.)
 - Image registry: GHCR (free for the repo) or something else?
 - Deploy trigger: automatically on merge to `dev`, or manual workflow dispatch?
 - Rollback mechanism: `kubectl rollout undo` or re-apply the previous SHA tag?
+- Ingress controller: nginx-ingress via the standard manifest, or a minikube/kind addon?
+  Record as ADR.
 
 ### Subtasks
 
@@ -642,6 +667,10 @@ freeze and the defence; the window is for *learning*, not for project work.)
 - [ ] `k8s/` manifests translated from the compose setup: Deployment (**replicas ≥ 2**,
       resource requests/limits, liveness/readiness probes on `/health`) + Service; secrets
       for the API key (3.3) and `MLFLOW_*` via k8s Secrets, not baked into the image.
+- [ ] **Ingress** (`k8s/ingress.yaml`, nginx-ingress controller): the single external entry
+      point routing external HTTPS → the api Service; **TLS terminates here** (cert via a k8s
+      Secret / optional cert-manager). The Service keeps ClusterIP L4 load-balancing across the
+      ≥2 replicas — the ingress adds entry + TLS, not a second balancer.
 - [ ] Rollback procedure: documented one-step revert (re-apply previous SHA tag / rollout
       undo) and actually rehearse it once.
 - [ ] Docs: README deploy section — how a push becomes a deployment, how to roll back.
@@ -649,7 +678,8 @@ freeze and the defence; the window is for *learning*, not for project work.)
 ### Done when
 
 A push deploys automatically; a bad deploy reverts in one step (rehearsed, not just
-documented); the API runs with >1 replica behind a Service.
+documented); the API runs with >1 replica behind a Service, reached through the nginx ingress
+over HTTPS.
 
 ---
 
@@ -659,6 +689,7 @@ documented); the API runs with >1 replica behind a Service.
 - [ ] A worse model is demonstrably not promoted
 - [ ] `/predict` requires auth; `/health` open; tests cover 401/403/429
 - [ ] Image tagged by git SHA, deployed on k8s with ≥2 replicas, rollback rehearsed
+- [ ] External traffic is HTTPS through the nginx reverse proxy (compose) / ingress (k8s)
 - [ ] `dev → main` milestone merge done, tag `milestone-3`
 
 ---

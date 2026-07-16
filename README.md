@@ -51,6 +51,7 @@ curl -s -X POST localhost:8000/predict \
 
 # …or fully containerized:
 make up                          # docker compose up --build -d
+# (once Phase 2's proxy lands, the public entry is http://localhost/ — nginx → api)
 ```
 
 **That's the whole verification** — the trained pipelines are committed in `models/`, so a fresh
@@ -78,7 +79,7 @@ supply-chain-ml-ops/
 ├── MILESTONES.md              # roadmap + per-phase technical tasks with owners
 ├── Makefile                   # make setup / test / lint / api / app / data / up
 ├── Dockerfile                 # slim, torch-free image for the inference API
-├── docker-compose.yml         # the api service (Phase 2 adds mlflow / db / storage)
+├── docker-compose.yml         # the api service (Phase 2 adds nginx proxy / mlflow / db / storage)
 ├── pyproject.toml             # uv project — core deps + optional groups (api/app/bert/data/dev)
 ├── docs/                      # ML_CANVAS, PROJECT_MANAGEMENT, TASKS_DONE, DATA_SOURCES
 ├── src/                       # core package: preprocessing, inference, registry, eda, explain, findings, ui
@@ -89,6 +90,8 @@ supply-chain-ml-ops/
 ├── models/                    # small sklearn pipelines + metric sidecars (large weights → DVC)
 ├── data/                      # big splits gitignored (DVC from Phase 2); two small committed
 │                              # EDA artifacts: eda_sample.parquet + eda_summary.json
+├── deploy/                    # nginx reverse-proxy config for compose (Phase 2) — planned
+├── k8s/                       # Kubernetes manifests incl. ingress (Phase 3) — planned
 └── .github/                   # issue/PR templates + CI workflow
 ```
 

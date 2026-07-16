@@ -106,10 +106,13 @@ and 2.4-B compose split; see `docs/TODO.md`.)*
 - **Why:** isolating services (API / training / tracking / storage) is the architecture step
   that makes everything after — orchestration, scaling, independent deploys — possible.
 - **Files:** `docker-compose.yml` → services: `api` (exists), `training` (runs
-  `build_pipelines.py`), `mlflow` (tracking server), plus a store (`minio` for artifacts and/or
-  `postgres` for the MLflow backend). This is also where the DistilBERT path becomes its own
-  torch-only service (the README's "Phase 2" note), keeping the classical API image slim —
-  weights via the `DISTILBERT_*` env vars ([CONTRIBUTING.md §7](CONTRIBUTING.md#7-data--model-handling)).
+  `build_pipelines.py`), `mlflow` (tracking server), a `proxy` (nginx) reverse proxy, plus a
+  store (`minio` for artifacts and/or `postgres` for the MLflow backend). This is also where the
+  DistilBERT path becomes its own torch-only service (the README's "Phase 2" note), keeping the
+  classical API image slim — weights via the `DISTILBERT_*` env vars ([CONTRIBUTING.md §7](CONTRIBUTING.md#7-data--model-handling)).
+- **Reverse proxy:** the `proxy` (nginx) service is the **single public entry point** in front
+  of `api` (and the `mlflow` UI) — internal ports stop being published directly. TLS/HTTPS is
+  added here in Task 3.3; in k8s this role becomes an ingress (Task 3.4).
 - **Done when:** `docker compose up` brings the whole stack; the API reads models the training
   service produced and MLflow tracked.
 - **Gotcha:** services talk over the compose network — use service
@@ -177,8 +180,11 @@ the multi-service stack runs.
   a model to the outside world.
 - **Files:** `api/main.py`, `tests/test_api.py`.
 - **Do:** add auth (API key / JWT) as a FastAPI dependency; validate/limit input size; add
-  basic rate limiting. Tests for authorized/unauthorized/flooded calls.
-- **Done when:** unauthenticated `/predict` is rejected (401/403) and tests prove it.
+  basic rate limiting. Tests for authorized/unauthorized/flooded calls. Terminate **TLS/HTTPS**
+  at the reverse proxy (nginx, Task 2.4; the ingress in Task 3.4) so external traffic is
+  encrypted — the app speaks plain HTTP behind it.
+- **Done when:** unauthenticated `/predict` is rejected (401/403) and tests prove it; external
+  traffic is served over HTTPS (TLS terminated at the proxy/ingress).
 - **Gotcha:** keep `/health` unauthenticated — Docker healthchecks and
   Kubernetes probes need it.
 
@@ -186,13 +192,16 @@ the multi-service stack runs.
 
 - **Why:** continuous deployment with rollback means a bad release is a one-command revert,
   and replicas mean one crashed container doesn't take the service down.
-- **Files:** `.github/workflows/ci.yml`, new `k8s/` manifests.
+- **Files:** `.github/workflows/ci.yml`, new `k8s/` manifests (incl. `k8s/ingress.yaml`).
 - **Do:** extend CI with a build+deploy job; keep the previous image tag for rollback.
-  Write Kubernetes manifests (Deployment + Service) from the compose setup. *Course timing:*
-  the k8s module opens Aug 27 (after the M3 target) — land the CI/CD half by Aug 7, do the
-  k8s hands-on Aug 27 – Sep 4, hard stop at the Sep 9 freeze (agree scope with the mentor).
+  Write Kubernetes manifests (Deployment + Service) from the compose setup, plus an **Ingress**
+  (nginx-ingress) as the single external entry point + TLS termination — the `Service` keeps
+  L4 load-balancing across replicas (the ingress adds entry + TLS, not a second balancer).
+  *Course timing:* the k8s module opens Aug 27 (after the M3 target) — land the CI/CD half by
+  Aug 7, do the k8s hands-on Aug 27 – Sep 4, hard stop at the Sep 9 freeze (agree scope with
+  the mentor).
 - **Done when:** a push deploys; a bad deploy reverts in one step; the API runs with >1 replica
-  behind a service.
+  behind a service, reached through the nginx ingress over HTTPS.
 - **Gotcha:** tag images with the git SHA, not `latest` — `latest`
   makes rollback meaningless.
 

@@ -20,7 +20,7 @@ Work is split into four **tracks**, and each member rotates to a new track every
 | Track | Covers |
 |-------|--------|
 | **A — Modeling & tracking** | training pipelines, MLflow, evaluation, drift analysis |
-| **B — Infra & CI** | Docker/compose, CI/CD, Kubernetes, Prometheus/Grafana plumbing |
+| **B — Infra & CI** | Docker/compose, reverse proxy (nginx/ingress), CI/CD, Kubernetes, Prometheus/Grafana plumbing |
 | **C — Data & versioning** | data pipelines, DVC, ingestion, retraining data |
 | **D — Serving & API** | FastAPI, registry integration, auth, instrumentation |
 
