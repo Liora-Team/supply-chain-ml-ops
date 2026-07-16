@@ -115,6 +115,22 @@ and 2.4-B compose split; see `docs/TODO.md`.)*
 - **Gotcha:** services talk over the compose network — use service
   names (`http://mlflow:5000`), not `localhost`, inside containers.
 
+### Task 2.5 — Internal Ops dashboard · **Owner: Marco**
+
+- **Why:** the seven demo pages are customer-facing; the team needs one operator view of
+  project state — a model-registry / data-versioning / tracking cockpit turns "is it working?"
+  into a glance and gives each later phase a home to surface its tool (MLflow, Airflow, Grafana).
+- **Files:** `pages/8_Ops.py` (new Streamlit page) + `app.py` (nav entry + "What's inside" row);
+  reads `src.registry` + `src.eda` only. Board breakdown → `docs/TODO.md` Card 2.5.
+- **Do:** a status strip (registry counts + serving model + dataset rows + MLflow-configured), a
+  model-registry table (Serving ★ = the API default), a data & versioning panel (star balance,
+  git SHA, DVC state), an MLflow config panel, a secrets-masked env expander, and deep links out.
+- **Done when:** opening **Ops** on a fresh clone (nothing configured) renders every panel with no
+  crash, ★ marks the API's default model, and no secret value is printed.
+- **Gotcha:** keep it **in-process** — no HTTP ping of the API (that needs `requests`/`httpx`,
+  absent from the `app` group); wrap every external read (git, `.dvc`, MLflow env) so missing
+  Phase-2/3/4 tooling degrades to a note instead of an exception.
+
 **Milestone done when:** an experiment is tracked in MLflow, `dvc pull` restores data/models,
 the multi-service stack runs.
 **Kickoff mapping:** Phase 2 "Microservices, tracking & version control".

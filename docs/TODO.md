@@ -402,6 +402,50 @@ torch image.
 
 ---
 
+## Card 2.5 — Internal Ops dashboard (`pages/8_Ops.py`)
+
+| | |
+|---|---|
+| **Assignee** | **Marco** |
+| **Labels** | `phase-2` `type:infra` `priority:med` |
+| **Branch** | `feature/ma-ops-dashboard` (from `dev`) |
+| **Depends on** | — buildable now (registry + committed EDA artifact). MLflow/DVC panels light up after 2.1/2.2/2.3; Airflow/Grafana deep links after Phase 3/4. |
+| **Files** | `pages/8_Ops.py` (new) · `app.py` (nav entry + "What's inside" row) |
+
+**Why:** the seven existing pages are the customer-facing demo; the team has no single
+operator view of project state. An internal cockpit — model registry, data & versioning,
+tracking config — turns "is it working?" into one glance and gives every later phase a home
+to surface its tool (MLflow, Airflow, Grafana) instead of scattering UIs.
+
+### Subtasks
+
+- [ ] New `pages/8_Ops.py`, registered in `app.py` (`st.navigation` entry + a row in the
+      "What's inside" table). Cross-schema page — does **not** call `ui.sidebar_controls()`.
+- [ ] **Status strip** (`st.columns` of `st.metric`): models registered, servable count,
+      3-class serving model, dataset rows, MLflow configured (yes/no).
+- [ ] **Model registry** table from `src.registry.all_models()` (both schemas): Model, Variant,
+      Schema, macro-F1, Servable ✓, Serving ★, Kind. ★ resolves the API default the same way
+      `api/main.py::default_model_id` does (env override → best loadable classical).
+- [ ] **Data & versioning**: rows / categories / companies + a star-balance bar from
+      `src.eda.summary()`; git short SHA; DVC status (`.dvc/` present? → configured / Card 2.3).
+- [ ] **MLflow & tracking**: reflect `MLFLOW_TRACKING_URI` config only — **no HTTP ping** (that
+      would pull `requests`/`httpx` into the `app` group). Info note when unset.
+- [ ] **Environment / config** expander: `DEFAULT_MODEL_*`, `DISTILBERT_*`, `MLFLOW_TRACKING_URI`;
+      **secrets masked** — username/password shown as `✓ set` / `—`, never the value.
+- [ ] **Deep links**: `st.link_button` to the API `/docs`; MLflow/Airflow/Grafana greyed until
+      their phase lands.
+- [ ] In-process + graceful degradation: every external read (git, `.dvc`, MLflow env) wrapped so
+      a fresh clone with nothing configured renders without a crash. **No new dependency.**
+- [ ] `ruff` + `black` clean; `make test` stays green.
+
+### Done when
+
+Opening **Ops** in the Streamlit sidebar on a fresh clone (no MLflow/DVC set) renders every
+panel with no crash, the registry table marks the API's default model with ★, the data panel
+shows live rows + git commit, and no secret value is ever printed.
+
+---
+
 ### Milestone 2 exit checklist
 
 - [ ] An experiment is tracked in MLflow (DagsHub UI shows params + macro-F1 + artifact)
