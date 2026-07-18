@@ -1,5 +1,6 @@
 [core]
     analytics = false
+    remote = dagshub
 ['remote "dagshub"']
    url = s3://dvc
    endpointurl = https://dagshub.com/contact.marco.accardi/supply-chain-ml-ops.s3
