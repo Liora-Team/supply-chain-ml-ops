@@ -1,0 +1,5 @@
+outs:
+- md5: efb5dac787ae0234b4bc7ddfebb7c181
+  size: 632240
+  hash: md5
+  path: LinearSVC__grid_+_cw=balanced__3-class.joblib

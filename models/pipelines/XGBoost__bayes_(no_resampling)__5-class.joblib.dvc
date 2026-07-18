@@ -1,0 +1,5 @@
+outs:
+- md5: d8d77cceb91ca59c311cff79501f70e2
+  size: 2129154
+  hash: md5
+  path: XGBoost__bayes_(no_resampling)__5-class.joblib
