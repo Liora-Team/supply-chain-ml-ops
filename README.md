@@ -57,6 +57,11 @@ curl -s -X POST localhost:8000/predict \
 make up                          # docker compose up --build -d
 # (once Phase 2's proxy lands, the public entry is http://localhost/ — nginx → api)
 ```
+> ⚠️ **Important**
+>
+> `make build` and `make up` assume that `make pull` has already been run.
+> The classical pipeline weights (`models/pipelines/*.joblib`) are now
+> DVC-tracked and are no longer present in a fresh git checkout by default.
 
 The remaining targets are **optional**, only for specific jobs (`make help` lists everything):
 
