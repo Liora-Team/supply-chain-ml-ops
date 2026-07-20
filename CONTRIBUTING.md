@@ -110,9 +110,8 @@ Keep PRs reviewable: aim for < ~400 changed lines. Split large work.
   store — no HF-hub hosting; the `DISTILBERT_3CLASS` / `DISTILBERT_5CLASS` env vars exist only
   to override with a custom local path (see `.env.example`).
 - **Remotes.** The **default** remote is the team's DagsHub-hosted, S3-backed storage
-  (`dagshub`, `s3://dvc` @ `https://dagshub.com/Liora-Team/supply-chain-ml-ops.s3`) — this is
-  what `make pull` / `make push` and CI use.
   (`dagshub`, `s3://dvc` @ `https://dagshub.com/contact.marco.accardi/supply-chain-ml-ops.s3`) — this is
+  what `make pull` / `make push` and CI use.
 - **Credentials never go in `.dvc/config`** (that file is committed and only holds
   urls/endpoints). Set them locally with `--local`, which writes to the git-ignored
   `.dvc/config.local`:
