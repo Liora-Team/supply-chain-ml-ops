@@ -102,13 +102,40 @@ Keep PRs reviewable: aim for < ~400 changed lines. Split large work.
 
 ## 7. Data & model handling
 
-- **Never commit large files.** `data/` and large `models/` weights are ignored by git and
-  versioned with **DVC** from Phase 2 (canonical rule — other docs link here). The fine-tuned
-  DistilBERT weights (2 × ~255 MB) are DVC-tracked at `models/distilbert_{3,5}class/final/`
-  and restored by `make pull` (until that lands in Phase 2, the interim source is the team
-  GDrive zip — link in `docs/TODO.md`, Card 2.3). DVC is the single model store — no HF-hub
-  hosting; the `DISTILBERT_3CLASS` / `DISTILBERT_5CLASS` env vars exist only to override
-  with a custom local path (see `.env.example`).
+- **Never commit large files.** `data/processed/{train,test}.csv` and **every** model weight
+  (all `models/pipelines/*.joblib`, including the 64 MB RandomForest 5-class, and both
+  DistilBERT fine-tune dirs `models/distilbert_{3,5}class/final/`, 2 × ~255 MB) are versioned
+  with **DVC** — git holds only code, `*.dvc` pointer files, and the small JSON metric
+  sidecars (`models/checkpoints/*.json`, `models/pipelines/*.json`). DVC is the single model
+  store — no HF-hub hosting; the `DISTILBERT_3CLASS` / `DISTILBERT_5CLASS` env vars exist only
+  to override with a custom local path (see `.env.example`).
+- **Remotes.** The **default** remote is the team's DagsHub-hosted, S3-backed storage
+  (`dagshub`, `s3://dvc` @ `https://dagshub.com/Liora-Team/supply-chain-ml-ops.s3`) — this is
+  what `make pull` / `make push` and CI use.
+- **Credentials never go in `.dvc/config`** (that file is committed and only holds
+  urls/endpoints). Set them locally with `--local`, which writes to the git-ignored
+  `.dvc/config.local`:
+  ```bash
+  # DagsHub: the token acts as both access key and secret (get one from DagsHub → Settings → Tokens)
+  uv run dvc remote modify --local dagshub access_key_id <DAGSHUB_TOKEN>
+  uv run dvc remote modify --local dagshub secret_access_key <DAGSHUB_TOKEN>
+  
+  ```
+  CI writes the same DagsHub config from the `DAGSHUB_TOKEN` repository secret (Card 2.4-A) —
+  never commit real values.
+- **Day-to-day loop:**
+  ```bash
+  make pull                          # start of day: restore data + weights (uv run dvc pull)
+  # ...edit code, regenerate data/retrain models...
+  dvc add data/processed/train.csv data/processed/test.csv   # new/changed dataset
+  dvc add models/pipelines/<name>.joblib                     # new/changed model weight
+  dvc commit                         # refresh hashes for artifacts regenerated in place
+  dvc push                           # push binaries to the DagsHub remote FIRST
+  git add . && git commit -m "..." && git push               # then push the git branch/pointers
+  ```
+  Pushing data before git (and pulling git before data — i.e. `git pull` then `make pull`) is
+  what keeps `.dvc` pointer files in git always resolvable: a reviewer who pulls the branch can
+  immediately `make pull` and get exactly the binaries the pointers describe.
 - Small runtime artifacts (a few hundred KB: `eda_summary.json`, `eda_sample.parquet`)
   may be committed by explicitly un-ignoring them in `.gitignore`.
 - **Document data transformations and features** as you add them (Data Management good
