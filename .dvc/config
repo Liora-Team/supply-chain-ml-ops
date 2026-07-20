@@ -1,8 +1,6 @@
 [core]
     analytics = false
-    remote = s3bucket
+    remote = dagshub
 ['remote "dagshub"']
     url = s3://dvc
     endpointurl = https://dagshub.com/contact.marco.accardi/supply-chain-ml-ops.s3
-['remote "s3bucket"']
-    url = s3://liora-dvc-mlops/dvc-remote
