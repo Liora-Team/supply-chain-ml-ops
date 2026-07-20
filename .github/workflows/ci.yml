@@ -27,5 +27,15 @@ jobs:
           uv run ruff check .
           uv run black --check .
 
+      - name: Configure DVC remote credentials (DagsHub)
+        run: |
+          uv run dvc remote modify --local dagshub access_key_id "$DAGSHUB_TOKEN"
+          uv run dvc remote modify --local dagshub secret_access_key "$DAGSHUB_TOKEN"
+        env:
+          DAGSHUB_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
+
+      - name: DVC pull (data + model weights)
+        run: uv run dvc pull
+
       - name: Run tests
         run: uv run pytest
