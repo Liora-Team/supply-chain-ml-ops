@@ -15,6 +15,9 @@ setup-full:  ## Full env incl. Streamlit app + DistilBERT (heavy: torch)
 pull:  ## Restore data + model weights from the DVC remote (needs DagsHub creds)
 	uv run dvc pull
 
+pull-ci: ## Restore only CI-required artifacts
+	uv run dvc pull data/processed/*.dvc models/pipelines/*.dvc
+
 push:  ## Push data + weights to the DVC remote (default: DagsHub)
 	uv run dvc push
 

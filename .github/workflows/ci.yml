@@ -35,7 +35,7 @@ jobs:
           DAGSHUB_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
 
       - name: DVC pull (data + classical model weights)
-        run: uv run dvc pull data/processed models/pipelines
+        run: uv run make pull-ci
 
       - name: Run tests
         run: uv run pytest
