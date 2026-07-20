@@ -1,6 +1,6 @@
 # Supply Chain MLOps — common tasks. Run `make help` for the list.
 .DEFAULT_GOAL := help
-.PHONY: help setup setup-full pull test lint fmt api app data train eda-artifacts up down build clean
+.PHONY: help setup setup-full pull push test lint fmt api app data train eda-artifacts up down build clean
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -14,6 +14,9 @@ setup-full:  ## Full env incl. Streamlit app + DistilBERT (heavy: torch)
 
 pull:  ## Restore data + model weights from the DVC remote (needs DagsHub creds)
 	uv run dvc pull
+
+push:  ## Push data + weights to the DVC remote (default: DagsHub)
+	uv run dvc push
 
 test:  ## Run the unit tests
 	uv run pytest
