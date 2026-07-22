@@ -63,7 +63,11 @@ The remaining targets are **optional**, only for specific jobs (`make help` list
 | Target | When you need it |
 |--------|------------------|
 | `make data` | Rebuild `data/processed/` from the raw HuggingFace dataset (~123k reviews). Only needed before retraining — the API/tests never read it. |
-| `make train` | Retrain all model pipelines from `data/processed/` (run `make data` first). Only when changing models or data. |
+
+| `make train` | Retrain all model pipelines from `data/processed/` and track experiments with MLflow. |
+
+[ *~~<span style="color:red;">| `make train` | Retrain all model pipelines from `data/processed/` (run `make data` first). Only when changing models or data. |</span>~~* ]
+
 | `make setup-full` + `make app` | Run the Streamlit demo front-end. Installs the heavy torch stack — skip unless you want the UI. |
 
 > **Note on scope:** the served API is **classical-only and torch-free** (keeps the env and
