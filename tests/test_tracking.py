@@ -1,18 +1,20 @@
 import os
+
 import mlflow
 import pandas as pd
-from sklearn.pipeline import Pipeline
-from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.dummy import DummyClassifier
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.pipeline import Pipeline
+
 
 def test_mlflow_logging_offline(tmp_path):
     """Smoke test to ensure MLflow tracks experiments without a network."""
     # NEW MLFLOW FIX: Allow local file storage
     os.environ["MLFLOW_ALLOW_FILE_STORE"] = "true"
-    
+
     # WINDOWS FIX: Convert the path to a proper file:// URI
     local_tracking_uri = tmp_path.joinpath("mlruns").resolve().as_uri()
-    
+
     os.environ["MLFLOW_TRACKING_URI"] = local_tracking_uri
     mlflow.set_tracking_uri(local_tracking_uri)
     mlflow.set_experiment("trustpilot-reviews")
@@ -22,10 +24,12 @@ def test_mlflow_logging_offline(tmp_path):
     y = [1, 5]
 
     # Tiny pipeline
-    pipe = Pipeline([
-        ("tfidf", TfidfVectorizer(max_features=10)),
-        ("clf", DummyClassifier(strategy="most_frequent"))
-    ])
+    pipe = Pipeline(
+        [
+            ("tfidf", TfidfVectorizer(max_features=10)),
+            ("clf", DummyClassifier(strategy="most_frequent")),
+        ]
+    )
 
     with mlflow.start_run(run_name="smoke-test-run"):
         pipe.fit(X, y)
@@ -35,6 +39,6 @@ def test_mlflow_logging_offline(tmp_path):
     # Assertions to prove it worked
     experiment = mlflow.get_experiment_by_name("trustpilot-reviews")
     runs = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
-    
+
     assert len(runs) == 1
     assert runs.iloc[0]["metrics.macro_f1"] == 0.5
