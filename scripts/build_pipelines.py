@@ -25,9 +25,9 @@ import os
 from pathlib import Path
 
 import joblib
-import pandas as pd
 import mlflow
 import mlflow.sklearn
+import pandas as pd
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -101,15 +101,16 @@ def make_estimator(algo: str, params: dict):
 
 def main() -> None:
 
-     # Load environment variables from .env file
+    # Load environment variables from .env file
     from dotenv import load_dotenv
+
     load_dotenv()
 
     # NEW MLFLOW FIX: Allow local file storage
     os.environ["MLFLOW_ALLOW_FILE_STORE"] = "true"
-    
+
     # MLflow Setup: Fallback to local mlruns if URI is not set in .env
-    #tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "mlruns")
+    # tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "mlruns")
     tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns")
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment("trustpilot-reviews")
@@ -140,7 +141,7 @@ def main() -> None:
 
             algo_name = meta["model"]
 
-            #clf = make_estimator(meta["model"], params)
+            # clf = make_estimator(meta["model"], params)
             clf = make_estimator(algo_name, params)
             pipe = Pipeline([("tfidf", TfidfVectorizer(**TFIDF_KWARGS)), ("clf", clf)])
 
@@ -148,20 +149,22 @@ def main() -> None:
             # Inference detects the 0-indexed 5-class model and shifts +1
             # (src/inference._star_shift, which reads pipe.classes_).
 
-            #xgb_shift = meta["model"] == "XGBoost" and schema == "5-class"
+            # xgb_shift = meta["model"] == "XGBoost" and schema == "5-class"
             xgb_shift = algo_name == "XGBoost" and schema == "5-class"
 
             out_id = f"{stem}__{schema}"
-            
+
             # --- MLFLOW TRACKING STARTS HERE ---
             with mlflow.start_run(run_name=out_id):
-                
+
                 # 1. Log Tags
-                mlflow.set_tags({
-                    "algorithm": algo_name,
-                    "schema": schema,
-                    "xgb_label_shift_applied": str(xgb_shift)
-                })
+                mlflow.set_tags(
+                    {
+                        "algorithm": algo_name,
+                        "schema": schema,
+                        "xgb_label_shift_applied": str(xgb_shift),
+                    }
+                )
 
                 # 2. Log Params
                 mlflow.log_params(params)
@@ -176,7 +179,7 @@ def main() -> None:
                 else:
                     pipe.fit(Xtr_text, ytr)
                     pred = pipe.predict(Xte_text)
-                
+
                 # All three metrics from the pipeline's own test predictions, so the
                 # leaderboard shows a consistent served-model row.
                 # Calculate metrics
@@ -186,28 +189,29 @@ def main() -> None:
                 reported = meta.get("macro_f1")
                 delta = (f1 - reported) if reported is not None else float("nan")
 
-                 # 3. Log Metrics
-                mlflow.log_metrics({
-                    "macro_f1": f1,
-                    "weighted_f1": wf1,
-                    "accuracy": acc,
-                    "parity_delta": delta if not pd.isna(delta) else 0.0
-                })
+                # 3. Log Metrics
+                mlflow.log_metrics(
+                    {
+                        "macro_f1": f1,
+                        "weighted_f1": wf1,
+                        "accuracy": acc,
+                        "parity_delta": delta if not pd.isna(delta) else 0.0,
+                    }
+                )
 
                 # 4. Log Model with signature
                 # Convert to string to prevent the 'int' signature warning
                 input_example = Xte_text.astype(str).iloc[:2].tolist()
-                
+
                 mlflow.sklearn.log_model(
                     sk_model=pipe,
                     artifact_path="model",
-                    # name="model", # will remove the warning permanently: WARNING mlflow.models.model: artifact_path is deprecated.
                     input_example=input_example,
-                    skops_trusted_types=["xgboost.core.Booster", "xgboost.sklearn.XGBClassifier"]
+                    skops_trusted_types=["xgboost.core.Booster", "xgboost.sklearn.XGBClassifier"],
                 )
 
             # --- MLFLOW TRACKING ENDS HERE ---
-                        
+
             out_id = f"{stem}__{schema}"
             joblib.dump(pipe, OUT / f"{out_id}.joblib")
             meta["pipeline_macro_f1"] = float(f1)
