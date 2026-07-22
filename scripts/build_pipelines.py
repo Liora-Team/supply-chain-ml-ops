@@ -21,10 +21,13 @@ Run:  uv run python scripts/build_pipelines.py
 """
 
 import json
+import os
 from pathlib import Path
 
 import joblib
 import pandas as pd
+import mlflow
+import mlflow.sklearn
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -97,6 +100,20 @@ def make_estimator(algo: str, params: dict):
 
 
 def main() -> None:
+
+     # Load environment variables from .env file
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    # NEW MLFLOW FIX: Allow local file storage
+    os.environ["MLFLOW_ALLOW_FILE_STORE"] = "true"
+    
+    # MLflow Setup: Fallback to local mlruns if URI is not set in .env
+    #tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "mlruns")
+    tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns")
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment("trustpilot-reviews")
+
     train = pd.read_csv(DATA / "train.csv")
     test = pd.read_csv(DATA / "test.csv")
     # review_lemma = preprocessed text written by scripts/get_data.py — the same
@@ -121,25 +138,76 @@ def main() -> None:
             params = _clean_params(meta.get("best_params"))
             ytr, yte = y[schema]
 
-            clf = make_estimator(meta["model"], params)
+            algo_name = meta["model"]
+
+            #clf = make_estimator(meta["model"], params)
+            clf = make_estimator(algo_name, params)
             pipe = Pipeline([("tfidf", TfidfVectorizer(**TFIDF_KWARGS)), ("clf", clf)])
 
             # XGBoost needs 0-indexed labels; 5-class stars are 1-5, so fit on y-1.
             # Inference detects the 0-indexed 5-class model and shifts +1
             # (src/inference._star_shift, which reads pipe.classes_).
-            xgb_shift = meta["model"] == "XGBoost" and schema == "5-class"
-            if xgb_shift:
-                pipe.fit(Xtr_text, ytr - 1)
-                pred = pipe.predict(Xte_text) + 1
-            else:
-                pipe.fit(Xtr_text, ytr)
-                pred = pipe.predict(Xte_text)
-            # All three metrics from the pipeline's own test predictions, so the
-            # leaderboard shows a consistent served-model row.
-            f1 = f1_score(yte, pred, average="macro")
-            wf1 = f1_score(yte, pred, average="weighted")
-            acc = accuracy_score(yte, pred)
 
+            #xgb_shift = meta["model"] == "XGBoost" and schema == "5-class"
+            xgb_shift = algo_name == "XGBoost" and schema == "5-class"
+
+            out_id = f"{stem}__{schema}"
+            
+            # --- MLFLOW TRACKING STARTS HERE ---
+            with mlflow.start_run(run_name=out_id):
+                
+                # 1. Log Tags
+                mlflow.set_tags({
+                    "algorithm": algo_name,
+                    "schema": schema,
+                    "xgb_label_shift_applied": str(xgb_shift)
+                })
+
+                # 2. Log Params
+                mlflow.log_params(params)
+                mlflow.log_params({f"tfidf_{k}": v for k, v in TFIDF_KWARGS.items()})
+                mlflow.log_param("random_seed", RANDOM_STATE)
+
+                # Fit model
+                # Fit model
+                if xgb_shift:
+                    pipe.fit(Xtr_text, ytr - 1)
+                    pred = pipe.predict(Xte_text) + 1
+                else:
+                    pipe.fit(Xtr_text, ytr)
+                    pred = pipe.predict(Xte_text)
+                
+                # All three metrics from the pipeline's own test predictions, so the
+                # leaderboard shows a consistent served-model row.
+                # Calculate metrics
+                f1 = f1_score(yte, pred, average="macro")
+                wf1 = f1_score(yte, pred, average="weighted")
+                acc = accuracy_score(yte, pred)
+                reported = meta.get("macro_f1")
+                delta = (f1 - reported) if reported is not None else float("nan")
+
+                 # 3. Log Metrics
+                mlflow.log_metrics({
+                    "macro_f1": f1,
+                    "weighted_f1": wf1,
+                    "accuracy": acc,
+                    "parity_delta": delta if not pd.isna(delta) else 0.0
+                })
+
+                # 4. Log Model with signature
+                # Convert to string to prevent the 'int' signature warning
+                input_example = Xte_text.astype(str).iloc[:2].tolist()
+                
+                mlflow.sklearn.log_model(
+                    sk_model=pipe,
+                    artifact_path="model",
+                    # name="model", # will remove the warning permanently: WARNING mlflow.models.model: artifact_path is deprecated.
+                    input_example=input_example,
+                    skops_trusted_types=["xgboost.core.Booster", "xgboost.sklearn.XGBClassifier"]
+                )
+
+            # --- MLFLOW TRACKING ENDS HERE ---
+                        
             out_id = f"{stem}__{schema}"
             joblib.dump(pipe, OUT / f"{out_id}.joblib")
             meta["pipeline_macro_f1"] = float(f1)
