@@ -44,6 +44,7 @@ models/pipelines/RandomForest*5-class.joblib
 # (models/checkpoints/*.json) ARE committed so the API + tests run from a clean clone.
 
 # ---- Experiment tracking (MLflow, Phase 2) ----
+mlflow.db
 mlruns/
 mlartifacts/
 
