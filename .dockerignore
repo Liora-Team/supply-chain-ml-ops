@@ -8,10 +8,9 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 
-# Not needed by the API image
+# Not needed by any image target (scripts/ stays in: the training target runs it)
 tests/
 docs/
-scripts/
 pages/
 app.py
 data/
