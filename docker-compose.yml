@@ -104,8 +104,10 @@ services:
       # container through this mount.
       - ./models:/app/models
     environment:
-      DISTILBERT_3CLASS: "${DISTILBERT_3CLASS:-}"
-      DISTILBERT_5CLASS: "${DISTILBERT_5CLASS:-}"
+      # Default to the DVC-restored weights in the mounted models/ dir; override with a
+      # custom path or HF hub id via .env (CONTRIBUTING.md §7).
+      DISTILBERT_3CLASS: "${DISTILBERT_3CLASS:-/app/models/distilbert_3class/final}"
+      DISTILBERT_5CLASS: "${DISTILBERT_5CLASS:-/app/models/distilbert_5class/final}"
       MLFLOW_TRACKING_URI: "${MLFLOW_TRACKING_URI:-}"
       MLFLOW_TRACKING_USERNAME: "${MLFLOW_TRACKING_USERNAME:-}"
       MLFLOW_TRACKING_PASSWORD: "${MLFLOW_TRACKING_PASSWORD:-}"
