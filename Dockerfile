@@ -1,9 +1,14 @@
-# Slim, torch-free image for the classical inference API (Phase 1 deliverable).
-# The DistilBERT path is deliberately out of scope here — it becomes its own image in Phase 2.
-FROM python:3.12-slim
+# Multi-target image — one build target per service responsibility (Card 2.4-B):
+#   api      — classical inference API, torch-free (the default target)
+#   training — one-shot job that rebuilds the served pipelines (core + track groups)
+#   bert     — the same API plus the torch stack for DistilBERT (api + bert groups)
+# Targets differ only in which uv dependency groups they sync.
+
+# --- base: pinned interpreter + uv + lockfile (shared by every target) ---
+FROM python:3.12.12-slim-bookworm AS base
 
 # uv for reproducible, lockfile-pinned installs.
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.9 /uv /usr/local/bin/uv
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -13,17 +18,62 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# 1) Dependencies first (cache-friendly). Core + api groups only: no dev, no torch/transformers.
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-install-project --no-default-groups --group api
+# Non-root runtime user (container hardening). Fixed UID so bind-mount ownership is stable.
+RUN useradd --uid 10001 --create-home app
 
-# 2) Pre-download the NLTK corpora so inference needs no network at runtime.
+# Dependencies first (cache-friendly). Secrets never enter layers — MLFLOW_* / DISTILBERT_*
+# credentials arrive only via environment passthrough at runtime (docker-compose.yml).
+COPY pyproject.toml uv.lock ./
+
+# --- training: one-shot pipeline rebuild (scripts/build_pipelines.py) ---
+# No NLTK corpora: data/processed/*.csv is already lemmatised by scripts/get_data.py.
+# The `track` group lands with Card 2.1 (PR #28) — this target builds once it merges.
+FROM base AS training
+
+RUN uv sync --frozen --no-install-project --no-default-groups --group track
+
+COPY src ./src
+COPY scripts ./scripts
+RUN chown -R app:app /app
+USER app
+
+# data/ and models/ are bind mounts (docker-compose.yml), never baked into the image.
+CMD ["uv", "run", "--no-sync", "python", "scripts/build_pipelines.py"]
+
+# --- bert: API image + torch stack, weights resolved via DISTILBERT_* (CONTRIBUTING.md §7) ---
+FROM base AS bert
+
+RUN uv sync --frozen --no-install-project --no-default-groups --group api --group bert
+
 RUN uv run --no-sync python -c "import nltk; [nltk.download(p, quiet=True, download_dir='/usr/share/nltk_data') for p in ('stopwords','wordnet','omw-1.4')]"
 
-# 3) Application code + the small classical model artifacts.
 COPY src ./src
 COPY api ./api
 COPY models ./models
+RUN chown -R app:app /app
+USER app
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"
+
+CMD ["uv", "run", "--no-sync", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# --- api: slim torch-free classical inference API (last stage = default target) ---
+FROM base AS api
+
+RUN uv sync --frozen --no-install-project --no-default-groups --group api
+
+# Pre-download the NLTK corpora so inference needs no network at runtime.
+RUN uv run --no-sync python -c "import nltk; [nltk.download(p, quiet=True, download_dir='/usr/share/nltk_data') for p in ('stopwords','wordnet','omw-1.4')]"
+
+# Application code + the small classical model artifacts.
+COPY src ./src
+COPY api ./api
+COPY models ./models
+RUN chown -R app:app /app
+USER app
 
 EXPOSE 8000
 
