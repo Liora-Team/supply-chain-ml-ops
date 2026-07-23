@@ -2,7 +2,7 @@
 
 from fastapi.testclient import TestClient
 
-from api.main import app, production_model
+from api.main import app, default_model_id, production_model
 from src import registry
 
 client = TestClient(app)
@@ -24,6 +24,32 @@ def test_api_falls_back_without_tracking_uri(monkeypatch):
     assert response.status_code == 200
     _, source = production_model("3-class")
     assert source == "local_joblib"
+
+
+def test_local_fallback_respects_configured_default(monkeypatch):
+    """Local fallback loads the model selected by DEFAULT_MODEL_3CLASS."""
+    loadable = [entry for entry in registry.classical("3-class") if entry.loadable]
+    configured = loadable[1]  # Deliberately choose a model that is not the best one.
+    loaded_paths = []
+
+    def fake_joblib_load(path):
+        loaded_paths.append(path)
+        return object()
+
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    monkeypatch.setenv("DEFAULT_MODEL_3CLASS", configured.id)
+    monkeypatch.setattr(registry.joblib, "load", fake_joblib_load)
+    default_model_id.cache_clear()
+    production_model.cache_clear()
+
+    try:
+        _, source = production_model("3-class")
+
+        assert source == "local_joblib"
+        assert loaded_paths == [configured.joblib_path]
+    finally:
+        default_model_id.cache_clear()
+        production_model.cache_clear()
 
 
 def test_api_uses_registry_when_available(monkeypatch):
@@ -128,7 +154,7 @@ def test_models_reports_registry_source(monkeypatch):
     monkeypatch.setattr(
         registry,
         "load_production",
-        lambda schema: (local_pipeline, "registry"),
+        lambda schema, fallback_model_id=None: (local_pipeline, "registry"),
     )
     production_model.cache_clear()
 
@@ -138,7 +164,14 @@ def test_models_reports_registry_source(monkeypatch):
         assert response.status_code == 200
         models = response.json()["models"]
         assert models, "expected at least one loadable model"
-        assert all(model["source"] == "registry" for model in models)
+        registry_models = [model for model in models if model["source"] == "registry"]
+        local_models = [model for model in models if model["source"] == "local_joblib"]
+
+        assert len(registry_models) == 1
+        assert registry_models[0]["id"] == registry.REGISTERED_MODEL_NAMES["3-class"]
+        assert registry_models[0]["default"] is True
+        assert local_models
+        assert all(model["default"] is False for model in local_models)
     finally:
         production_model.cache_clear()
 
@@ -160,3 +193,26 @@ def test_predict_rejects_bad_schema():
 def test_predict_unknown_model_id():
     r = client.post("/predict", json={"text": "hi", "schema": "3-class", "model_id": "nope"})
     assert r.status_code == 404
+
+
+def test_predict_accepts_registered_model_id(monkeypatch):
+    """A registered-model ID returned by the API can be sent back explicitly."""
+    registered_id = registry.REGISTERED_MODEL_NAMES["3-class"]
+    local_pipeline, _ = registry._load_local_pipeline("3-class")
+
+    monkeypatch.setattr(
+        "api.main.production_model",
+        lambda schema: (local_pipeline, "registry"),
+    )
+
+    response = client.post(
+        "/predict",
+        json={
+            "text": "Fantastic service!",
+            "schema": "3-class",
+            "model_id": registered_id,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["model_id"] == registered_id

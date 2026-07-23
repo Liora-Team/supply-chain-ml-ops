@@ -190,7 +190,6 @@ def main() -> None:
     print(f"Registered model: {model_name}")
     print(f"New version: {new_version}")
     print(f"Alias: {PRODUCTION_ALIAS}")
-
     print_rollback(model_name, previous_version, tracking_uri)
 
 

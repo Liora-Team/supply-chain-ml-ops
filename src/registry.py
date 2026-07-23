@@ -204,17 +204,29 @@ def classical(schema: str | None = None) -> list[ModelEntry]:
     return sorted(out, key=lambda e: e.macro_f1 or -1, reverse=True)
 
 
-def _load_local_pipeline(schema: str):
-    """Load the best available local classical pipeline for a schema."""
-    entry = next((e for e in classical(schema) if e.loadable), None)
+def _load_local_pipeline(schema: str, model_id: str | None = None):
+    """Load a selected local pipeline, or the best available one."""
+    if model_id is None:
+        entry = next((e for e in classical(schema) if e.loadable), None)
+    else:
+        entry = next(
+            (e for e in classical(schema) if e.id == model_id and e.loadable),
+            None,
+        )
 
     if entry is None or entry.joblib_path is None:
-        raise RuntimeError(f"No loadable local model found for schema {schema!r}.")
+        raise RuntimeError(
+            f"No loadable local model found for schema {schema!r}"
+            + (f" with id {model_id!r}." if model_id else ".")
+        )
 
     return joblib.load(entry.joblib_path), "local_joblib"
 
 
-def load_production(schema: str):
+def load_production(
+    schema: str,
+    fallback_model_id: str | None = None,
+):
     """Load the production pipeline for a supported label schema."""
     if schema not in REGISTERED_MODEL_NAMES:
         raise ValueError(f"Unsupported schema: {schema!r}")
@@ -237,7 +249,7 @@ def load_production(schema: str):
                 exc_info=True,
             )
 
-    return _load_local_pipeline(schema)
+    return _load_local_pipeline(schema, fallback_model_id)
 
 
 def best_loadable(schema: str, algo: str = "LogReg") -> ModelEntry | None:

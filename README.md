@@ -81,7 +81,8 @@ When `MLFLOW_TRACKING_URI` is set, the API first tries to load the model referen
 models:/<registered-model-name>@production
 ```
 
-If the tracking URI is unset or registry loading fails, the API falls back to the best available local joblib pipeline in `models/pipelines/`. This allows the API and CI tests to run without an MLflow server.
+If the tracking URI is unset or registry loading fails, the API falls back to the configured local joblib default. If no override is configured, the project's normal local default selection is used. This allows the API and CI tests to run without an MLflow server.
+
 
 The `/models` endpoint reports the active source as either `registry` or `local_joblib`.
 
