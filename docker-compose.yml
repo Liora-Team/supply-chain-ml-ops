@@ -57,7 +57,8 @@ services:
       - ./models:/app/models
     environment:
       # Team truth is DagsHub (.env); for offline local dev set
-      # MLFLOW_TRACKING_URI=http://mlflow:5000 to log into the local mlflow service.
+      # MLFLOW_TRACKING_URI=http://mlflow:5000/mlflow to log into the local mlflow
+      # service (--static-prefix puts its REST API under /mlflow too).
       MLFLOW_TRACKING_URI: "${MLFLOW_TRACKING_URI:-}"
       MLFLOW_TRACKING_USERNAME: "${MLFLOW_TRACKING_USERNAME:-}"
       MLFLOW_TRACKING_PASSWORD: "${MLFLOW_TRACKING_PASSWORD:-}"

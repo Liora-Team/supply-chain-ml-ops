@@ -96,7 +96,7 @@ curl -s localhost/health                              # api through nginx
 open http://localhost/mlflow/                         # local MLflow UI
 
 # One-shot training, logged to the local MLflow (or drop the URI override to use .env/DagsHub):
-MLFLOW_TRACKING_URI=http://mlflow:5000 docker compose --profile train up --build training
+MLFLOW_TRACKING_URI=http://mlflow:5000/mlflow docker compose --profile train up --build training
 
 docker compose --profile bert up -d --build bert      # DistilBERT service (heavy: torch)
 ```
