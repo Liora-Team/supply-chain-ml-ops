@@ -72,6 +72,9 @@ services:
       --backend-store-uri sqlite:////mlruns/mlflow.db
       --artifacts-destination /mlruns/artifacts
       --static-prefix /mlflow
+      --allowed-hosts localhost,localhost:*,mlflow,mlflow:*
+    # allowed-hosts: the server's DNS-rebinding guard otherwise 403s in-network
+    # clients that address it by service name (Host: mlflow:5000).
     volumes:
       - mlruns:/mlruns
     # Not published — the UI is reached through the proxy at /mlflow/.
