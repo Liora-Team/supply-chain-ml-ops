@@ -67,6 +67,7 @@ open the **Glossary** below any time a term is unfamiliar.
 | **Insights** | Per-class scores, what words the model weighs, and a leakage caveat |
 | **Business** | Model errors translated into euros — the deployment case |
 | **About** | Methodology, metric choice, and links |
+| **Ops** | Internal ops view — model registry, data versioning, tracking status |
 
 Use the **sidebar** on each page to switch between *3-class* (neg / neu / pos)
 and *5-class* (1-5 stars).
@@ -90,6 +91,7 @@ pages = st.navigation(
         st.Page("pages/5_Insights.py", title="Insights", icon="🧠"),
         st.Page("pages/6_Business.py", title="Business", icon="💶"),
         st.Page("pages/7_About.py", title="About", icon="ℹ️"),
+        st.Page("pages/8_Ops.py", title="Ops", icon="🛠️"),
     ]
 )
 pages.run()
