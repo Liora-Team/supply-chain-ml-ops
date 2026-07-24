@@ -149,6 +149,6 @@ Future-you and the mentor review will thank you.
 
 ---
 
-**Golden rule:** if a teammate can't reproduce your result from a clean clone + `uv sync` (or
-`docker compose up`), it isn't done. See the Definition of Done in
+**Golden rule:** if a teammate can't reproduce your result from a clean clone + `uv sync` +
+`make pull` (or `docker compose up` after `make pull`), it isn't done. See the Definition of Done in
 [docs/PROJECT_MANAGEMENT.md](docs/PROJECT_MANAGEMENT.md).
