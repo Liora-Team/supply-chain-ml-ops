@@ -9,9 +9,12 @@ Leaderboard, Explain) reads from here so the UI never hard-codes a model list.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import joblib
 
 ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_DIR = ROOT / "models" / "checkpoints"
@@ -19,6 +22,14 @@ CHECKPOINT_DIR = ROOT / "models" / "checkpoints"
 # Each bundles its own vectoriser, so vocabulary and weights always travel
 # together in one file. These are what the app loads.
 PIPELINE_DIR = ROOT / "models" / "pipelines"
+
+REGISTERED_MODEL_NAMES = {
+    "3-class": "reviews-classifier-3class",
+    "5-class": "reviews-classifier-5class",
+}
+
+logger = logging.getLogger(__name__)
+
 
 # DistilBERT source per schema. Defaults to the local fine-tune dirs; on
 # Hugging Face Spaces (where shipping 2×255 MB is heavy) set the env vars to a
@@ -191,6 +202,54 @@ def classical(schema: str | None = None) -> list[ModelEntry]:
         e for e in all_models() if e.kind == "classical" and (schema is None or e.schema == schema)
     ]
     return sorted(out, key=lambda e: e.macro_f1 or -1, reverse=True)
+
+
+def _load_local_pipeline(schema: str, model_id: str | None = None):
+    """Load a selected local pipeline, or the best available one."""
+    if model_id is None:
+        entry = next((e for e in classical(schema) if e.loadable), None)
+    else:
+        entry = next(
+            (e for e in classical(schema) if e.id == model_id and e.loadable),
+            None,
+        )
+
+    if entry is None or entry.joblib_path is None:
+        raise RuntimeError(
+            f"No loadable local model found for schema {schema!r}"
+            + (f" with id {model_id!r}." if model_id else ".")
+        )
+
+    return joblib.load(entry.joblib_path), "local_joblib"
+
+
+def load_production(
+    schema: str,
+    fallback_model_id: str | None = None,
+):
+    """Load the production pipeline for a supported label schema."""
+    if schema not in REGISTERED_MODEL_NAMES:
+        raise ValueError(f"Unsupported schema: {schema!r}")
+
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
+    if tracking_uri:
+        model_name = REGISTERED_MODEL_NAMES[schema]
+        model_uri = f"models:/{model_name}@production"
+        try:
+            import mlflow
+
+            mlflow.set_tracking_uri(tracking_uri)
+            pipeline = mlflow.sklearn.load_model(model_uri)
+            return pipeline, "registry"
+
+        except Exception:
+            logger.warning(
+                "Could not load %s from MLflow; falling back to local joblib.",
+                model_uri,
+                exc_info=True,
+            )
+
+    return _load_local_pipeline(schema, fallback_model_id)
 
 
 def best_loadable(schema: str, algo: str = "LogReg") -> ModelEntry | None:
