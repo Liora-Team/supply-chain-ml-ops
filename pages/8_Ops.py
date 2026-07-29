@@ -1,7 +1,8 @@
 """Ops page — internal operator view of project state.
 
 Cross-schema cockpit for the team (not the demo audience): model registry with the
-API's serving default, dataset + versioning state, and tracking configuration.
+API's local fallback serving default, dataset + versioning state, and tracking
+configuration.
 Everything is read in-process (registry scan, committed EDA artifact, env vars, a
 local git call) and every external read degrades to a note on a fresh clone, so
 the page renders with nothing configured. No sidebar schema switch here — this
@@ -24,10 +25,13 @@ SCHEMAS = ("3-class", "5-class")
 
 
 def _serving_id(schema: str) -> str | None:
-    """Model id the API would serve for a schema, or None when nothing is loadable.
+    """Local fallback model id for a schema, or None when nothing is loadable.
 
     Mirrors api/main.py::default_model_id — keep in sync. Replicated rather than
-    imported so the app never depends on the `api` dependency group.
+    imported so the app never depends on the `api` dependency group. When
+    MLFLOW_TRACKING_URI is set the API prefers the MLflow @production alias
+    (api/main.py::production_model), so this is its fallback, not always the
+    model actually served.
     """
     try:
         override = os.environ.get(f"DEFAULT_MODEL_{schema.replace('-class', 'class').upper()}")
@@ -56,7 +60,7 @@ def _git_sha() -> str | None:
 
 
 def _dvc_configured() -> bool:
-    """Whether DVC has been initialised in this clone (Card 2.3)."""
+    """Whether DVC is initialised in this clone."""
     try:
         return (ROOT / ".dvc").is_dir()
     except Exception:
@@ -79,6 +83,7 @@ entries = R.all_models()
 servable = [e for e in entries if e.loadable]
 serving = {s: _serving_id(s) for s in SCHEMAS}
 summary_ok = eda.SUMMARY_PATH.exists()
+s = eda.summary() if summary_ok else None
 mlflow_uri = os.environ.get("MLFLOW_TRACKING_URI")
 
 # Status strip
@@ -86,12 +91,13 @@ c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Models registered", len(entries))
 c2.metric("Servable", len(servable))
 c3.metric("Serving (3-class)", serving["3-class"] or "—")
-c4.metric("Dataset rows", f"{eda.summary()['n_reviews']:,}" if summary_ok else "—")
+c4.metric("Dataset rows", f"{s['n_reviews']:,}" if summary_ok else "—")
 c5.metric("MLflow", "configured" if mlflow_uri else "not set")
 
 st.divider()
 
-# Model registry — both schemas in one table, ★ marks the API's default per schema.
+# Model registry — both schemas in one table, ★ marks the API's local fallback
+# default per schema.
 st.subheader("Model registry")
 rows = []
 for e in entries:
@@ -119,15 +125,16 @@ if rows:
                 help="✓ = a ready-to-load pipeline (or DistilBERT weights) exists in this clone."
             ),
             "Serving": st.column_config.Column(
-                help="★ = the model the API serves for that schema when no explicit "
-                "model_id is requested (env override, else best loadable classical)."
+                help="★ = the API's local fallback default for that schema (env "
+                "override, else best loadable classical). With MLflow configured, "
+                "the API may serve the registry @production model instead."
             ),
         },
     )
 if not servable:
     st.info(
         "No servable model in this clone — model weights are not checked out. "
-        "Once DVC lands (Card 2.3), `make pull` restores them."
+        "Run `make pull` to restore them from the DVC remote."
     )
 
 st.divider()
@@ -135,7 +142,6 @@ st.divider()
 # Data & versioning
 st.subheader("Data & versioning")
 if summary_ok:
-    s = eda.summary()
     d1, d2, d3 = st.columns(3)
     d1.metric("Reviews", f"{s['n_reviews']:,}")
     d2.metric("Categories", s["n_categories"])
@@ -153,7 +159,7 @@ sha = _git_sha()
 v1.metric("Git commit", sha or "unavailable")
 v2.metric("DVC", "configured" if _dvc_configured() else "not configured")
 if not _dvc_configured():
-    v2.caption("Data/model versioning arrives with Card 2.3.")
+    v2.caption("DVC not initialised in this clone.")
 
 st.divider()
 
