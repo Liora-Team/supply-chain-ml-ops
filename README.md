@@ -38,10 +38,14 @@ with dates and per-task owners is in [MILESTONES.md](MILESTONES.md).
 # 1. Reproducible dev env (torch-free: core + api + dev). ~30s.
 make setup                       # = uv sync
 
-# 2. Run the test suite (preprocessing + inference + API).
+# 2. Restore data + model weights from the DVC remote (DagsHub — needs credentials, see
+#    CONTRIBUTING.md §7). No weights are committed to git anymore.
+make pull                        # = uv run dvc pull
+
+# 3. Run the test suite (preprocessing + inference + API).
 make test                        # 15 passing (first run downloads NLTK data once — needs network)
 
-# 3. Serve the inference API.
+# 4. Serve the inference API.
 make api                         # → http://localhost:8000/docs
 curl -s localhost:8000/health
 curl -s -X POST localhost:8000/predict \
@@ -53,10 +57,11 @@ curl -s -X POST localhost:8000/predict \
 make up                          # docker compose up --build -d
 # (once Phase 2's proxy lands, the public entry is http://localhost/ — nginx → api)
 ```
-
-**That's the whole verification** — the trained pipelines are committed in `models/`, so a fresh
-clone needs **no dataset download and no training** to run the tests and serve predictions.
-(The only one-time network fetch is the small NLTK corpora on the first `make test`.)
+> ⚠️ **Important**
+>
+> `make build` and `make up` assume that `make pull` has already been run.
+> The classical pipeline weights (`models/pipelines/*.joblib`) are now
+> DVC-tracked and are no longer present in a fresh git checkout by default.
 
 The remaining targets are **optional**, only for specific jobs (`make help` lists everything):
 
@@ -169,9 +174,9 @@ supply-chain-ml-ops/
 ├── scripts/                   # get_data.py (collect+preprocess) · build_pipelines.py (train)
 │                              # · build_eda_artifacts.py (provenance of the committed EDA artifacts)
 ├── tests/                     # pytest: preprocessing, inference, api
-├── models/                    # small sklearn pipelines + metric sidecars (large weights → DVC)
-├── data/                      # big splits gitignored (DVC from Phase 2); two small committed
-│                              # EDA artifacts: eda_sample.parquet + eda_summary.json
+├── models/                    # metric sidecars in git; all *.joblib + DistilBERT dirs → DVC
+├── data/                      # train/test splits → DVC; two small committed EDA artifacts
+│                              # stay in git: eda_sample.parquet + eda_summary.json
 ├── deploy/                    # nginx reverse-proxy config for compose (Phase 2) — planned
 ├── k8s/                       # Kubernetes manifests incl. ingress (Phase 3) — planned
 └── .github/                   # issue/PR templates + CI workflow

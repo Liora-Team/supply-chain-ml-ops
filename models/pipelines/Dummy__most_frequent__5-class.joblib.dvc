@@ -1,0 +1,5 @@
+outs:
+- md5: 3f177dca89524cca81aea4ff5a8d66da
+  size: 392121
+  hash: md5
+  path: Dummy__most_frequent__5-class.joblib
