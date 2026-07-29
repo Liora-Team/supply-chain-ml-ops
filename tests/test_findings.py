@@ -32,6 +32,7 @@ def test_no_zero_byte_dvc_artifacts():
     missing/empty file (e.g. git cat-file on a gitignored path).
     """
     import yaml
+
     root = Path(__file__).parent.parent
     for dvc_file in root.rglob("*.dvc"):
         if not dvc_file.is_file():
@@ -48,6 +49,6 @@ def test_all_loadable_models_have_positive_size():
 
     for entry in classical("5-class") + classical("3-class"):
         if entry.joblib_path is not None:
-            assert entry.joblib_path.stat().st_size > 0, (
-                f"{entry.model_id} is loadable but {entry.joblib_path} is empty"
-            )
+            assert (
+                entry.joblib_path.stat().st_size > 0
+            ), f"{entry.model_id} is loadable but {entry.joblib_path} is empty"
