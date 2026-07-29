@@ -7,7 +7,6 @@ nobody updates findings.py, this test fails.
 """
 
 import json
-import yaml
 from pathlib import Path
 
 from src import findings
