@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from src import registry
-from src.inference import predict_classical
+from src.inference import predict_classical, predict_loaded_classical
 
 SCHEMAS = ("3-class", "5-class")
 
@@ -27,9 +27,6 @@ app = FastAPI(
 )
 
 
-# Models
-# `model_config`: allow a `model_id` field (protected_namespaces) and accept the public JSON
-# key `schema` via an alias (a bare `schema` field would shadow a pydantic BaseModel attribute).
 class PredictRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=(), populate_by_name=True)
 
@@ -38,7 +35,9 @@ class PredictRequest(BaseModel):
         "3-class", alias="schema", description="Label schema: '3-class' or '5-class'."
     )
     model_id: str | None = Field(
-        None, description="Optional explicit registry model id. Defaults to best macro-F1."
+        None,
+        description="Optional explicit local model id. When omitted, the API uses the "
+        "production MLflow alias with local joblib fallback.",
     )
 
 
@@ -67,6 +66,12 @@ def default_model_id(schema: str) -> str:
     return loadable[0].id  # registry.classical() is sorted best macro-F1 first
 
 
+@lru_cache(maxsize=len(SCHEMAS))
+def production_model(schema: str):
+    """Load and cache the production pipeline and its source for one schema."""
+    return registry.load_production(schema, default_model_id(schema))
+
+
 # Routes
 @app.get("/health")
 def health() -> dict:
@@ -82,7 +87,20 @@ def models(schema: str | None = None) -> dict:
     for sc in schemas:
         if sc not in SCHEMAS:
             raise HTTPException(status_code=422, detail=f"schema must be one of {SCHEMAS}")
-        default = default_model_id(sc)
+
+        _, production_source = production_model(sc)
+        local_default = default_model_id(sc)
+        if production_source == "registry":
+            out.append(
+                {
+                    "id": registry.REGISTERED_MODEL_NAMES[sc],
+                    "schema": sc,
+                    "algo": None,
+                    "macro_f1": None,
+                    "default": True,
+                    "source": "registry",
+                }
+            )
         for e in registry.classical(sc):
             if e.loadable:
                 out.append(
@@ -91,7 +109,8 @@ def models(schema: str | None = None) -> dict:
                         "schema": e.schema,
                         "algo": e.algo,
                         "macro_f1": e.macro_f1,
-                        "default": e.id == default,
+                        "default": (production_source == "local_joblib" and e.id == local_default),
+                        "source": "local_joblib",
                     }
                 )
     return {"models": out}
@@ -101,12 +120,48 @@ def models(schema: str | None = None) -> dict:
 def predict(req: PredictRequest) -> PredictResponse:
     """Predict the star rating (or 3-class sentiment) of one review."""
     if req.label_schema not in SCHEMAS:
-        raise HTTPException(status_code=422, detail=f"schema must be one of {SCHEMAS}")
-    model_id = req.model_id or default_model_id(req.label_schema)
-    try:
-        p = predict_classical(model_id, req.text)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Unknown model_id {model_id!r}.") from None
+        raise HTTPException(
+            status_code=422,
+            detail=f"schema must be one of {SCHEMAS}",
+        )
+
+    registered_id = registry.REGISTERED_MODEL_NAMES[req.label_schema]
+
+    if req.model_id:
+        if req.model_id == registered_id:
+            pipe, source = production_model(req.label_schema)
+
+            # Report the model that was actually served.
+            model_id = registered_id if source == "registry" else default_model_id(req.label_schema)
+
+            p = predict_loaded_classical(
+                model_id,
+                req.text,
+                pipe=pipe,
+                schema=req.label_schema,
+            )
+        else:
+            try:
+                p = predict_classical(req.model_id, req.text)
+            except KeyError:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Unknown model_id {req.model_id!r}.",
+                ) from None
+    else:
+        pipe, source = production_model(req.label_schema)
+
+        # MLflow success registered-model ID.
+        # Local fallback configured local default ID.
+        model_id = registered_id if source == "registry" else default_model_id(req.label_schema)
+
+        p = predict_loaded_classical(
+            model_id,
+            req.text,
+            pipe=pipe,
+            schema=req.label_schema,
+        )
+
     return PredictResponse(
         model_id=p.model_id,
         label_schema=p.schema,

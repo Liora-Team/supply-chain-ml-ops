@@ -107,7 +107,7 @@ A task is **Done** only when all that apply are true:
 - [ ] `ruff` + `black` clean
 - [ ] CI green
 - [ ] Reviewed & approved by ≥1 teammate
-- [ ] Reproducible from a clean clone (`uv sync` / `docker compose up`)
+- [ ] Reproducible from a clean clone (`uv sync` + `make pull` / `docker compose up` after `make pull`)
 - [ ] Docs updated if behavior/interface changed
 
 **Data / model**

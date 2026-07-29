@@ -34,16 +34,12 @@ data/processed/*.parquet
 # Also committed (small runtime artifact): eda_summary.json.
 
 # ---- Models ----
-# Large weights go via DVC / HF hub — never committed. DistilBERT weights are 255 MB+.
-models/distilbert_*/
-models/**/*.safetensors
-models/**/*.bin
-# the 64 MB RandomForest 5-class (excluded from migration; guard against re-adding)
-models/pipelines/RandomForest*5-class.joblib
-# The small sklearn pipelines (models/pipelines/*.joblib + *.json) and metric sidecars
-# (models/checkpoints/*.json) ARE committed so the API + tests run from a clean clone.
+# All model weights (classical *.joblib incl. RandomForest 5-class, and both DistilBERT
+# fine-tune dirs) are DVC-tracked — see models/**/.gitignore, written by `dvc add`.
+# JSON metric sidecars stay in git.
 
 # ---- Experiment tracking (MLflow, Phase 2) ----
+mlflow.db
 mlruns/
 mlartifacts/
 

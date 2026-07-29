@@ -38,10 +38,14 @@ with dates and per-task owners is in [MILESTONES.md](MILESTONES.md).
 # 1. Reproducible dev env (torch-free: core + api + dev). ~30s.
 make setup                       # = uv sync
 
-# 2. Run the test suite (preprocessing + inference + API).
+# 2. Restore data + model weights from the DVC remote (DagsHub — needs credentials, see
+#    CONTRIBUTING.md §7). No weights are committed to git anymore.
+make pull                        # = uv run dvc pull
+
+# 3. Run the test suite (preprocessing + inference + API).
 make test                        # 15 passing (first run downloads NLTK data once — needs network)
 
-# 3. Serve the inference API.
+# 4. Serve the inference API.
 make api                         # → http://localhost:8000/docs
 curl -s localhost:8000/health
 curl -s -X POST localhost:8000/predict \
@@ -53,10 +57,11 @@ curl -s -X POST localhost:8000/predict \
 make up                          # docker compose up --build -d
 # (once Phase 2's proxy lands, the public entry is http://localhost/ — nginx → api)
 ```
-
-**That's the whole verification** — the trained pipelines are committed in `models/`, so a fresh
-clone needs **no dataset download and no training** to run the tests and serve predictions.
-(The only one-time network fetch is the small NLTK corpora on the first `make test`.)
+> ⚠️ **Important**
+>
+> `make build` and `make up` assume that `make pull` has already been run.
+> The classical pipeline weights (`models/pipelines/*.joblib`) are now
+> DVC-tracked and are no longer present in a fresh git checkout by default.
 
 The remaining targets are **optional**, only for specific jobs (`make help` lists everything):
 
@@ -65,6 +70,88 @@ The remaining targets are **optional**, only for specific jobs (`make help` list
 | `make data` | Rebuild `data/processed/` from the raw HuggingFace dataset (~123k reviews). Only needed before retraining — the API/tests never read it. |
 | `make train` | Retrain all model pipelines from `data/processed/` (run `make data` first). Only when changing models or data. |
 | `make setup-full` + `make app` | Run the Streamlit demo front-end. Installs the heavy torch stack — skip unless you want the UI. |
+
+## MLflow model registry
+
+The API supports two registered models:
+
+- `reviews-classifier-3class`
+- `reviews-classifier-5class`
+
+### Model loading
+
+When `MLFLOW_TRACKING_URI` is set, the API first tries to load the model referenced by the lowercase `production` alias:
+
+```text
+models:/<registered-model-name>@production
+```
+
+If the tracking URI is unset or registry loading fails, the API falls back to the configured local joblib default. If no override is configured, the project's normal local default selection is used. This allows the API and CI tests to run without an MLflow server.
+
+
+The `/models` endpoint reports the active source as either `registry` or `local_joblib`.
+
+### Promote a model
+
+For local testing, the run must belong to the `trustpilot-reviews` experiment and include these tags:
+
+```text
+schema = 3-class
+algorithm = LogReg
+```
+
+If `--run-id` is omitted, the script selects the latest finished LogReg run matching the requested schema:
+
+```bash
+uv run python scripts/register_model.py \
+  --schema 3-class
+```
+
+To promote a particular approved run:
+
+```bash
+uv run python scripts/register_model.py \
+  --schema 3-class \
+  --run-id <approved-run-id> \
+  --tracking-uri "<mlflow-tracking-uri>"
+```
+
+The tracking URI is selected in this order:
+
+1. `--tracking-uri`
+2. `MLFLOW_TRACKING_URI`
+3. The repository's local `mlruns/` store
+
+The script prints a warning when it falls back to `mlruns/`. This local store is intended for testing; the final team promotion must use the team's configured MLflow tracking URI.
+
+Promotion registers the run's `model` artifact under the appropriate registered-model name and moves the lowercase `production` alias to the new version using the MLflow client API. Deprecated model stages are not used.
+
+Restart the API after promotion so it clears its model cache and loads the version referenced by `production`. No source-code change or image rebuild is required.
+
+The final promotion of the team's approved model will be performed with an explicit `--run-id` after Card 2.1 merges.
+
+### Roll back a promotion
+
+Rollback means moving the `production` alias back to the previous model version. It does not delete or retrain a model.
+
+The promotion script prints the previous version and the Python code needed to restore it. For example:
+
+```bash
+MLFLOW_TRACKING_URI="<mlflow-tracking-uri>" uv run python - <<'PY'
+import mlflow
+from mlflow import MlflowClient
+
+client = MlflowClient()
+client.set_registered_model_alias(
+    name="reviews-classifier-3class",
+    alias="production",
+    version="<previous-version>",
+)
+PY
+```
+
+Restart the API after rollback so it reloads the version referenced by `production`.
+
 
 > **Note on scope:** the served API is **classical-only and torch-free** (keeps the env and
 > image small). The DistilBERT path becomes its own service in Phase 2's microservices split
@@ -87,9 +174,9 @@ supply-chain-ml-ops/
 ├── scripts/                   # get_data.py (collect+preprocess) · build_pipelines.py (train)
 │                              # · build_eda_artifacts.py (provenance of the committed EDA artifacts)
 ├── tests/                     # pytest: preprocessing, inference, api
-├── models/                    # small sklearn pipelines + metric sidecars (large weights → DVC)
-├── data/                      # big splits gitignored (DVC from Phase 2); two small committed
-│                              # EDA artifacts: eda_sample.parquet + eda_summary.json
+├── models/                    # metric sidecars in git; all *.joblib + DistilBERT dirs → DVC
+├── data/                      # train/test splits → DVC; two small committed EDA artifacts
+│                              # stay in git: eda_sample.parquet + eda_summary.json
 ├── deploy/                    # nginx reverse-proxy config for compose (Phase 2) — planned
 ├── k8s/                       # Kubernetes manifests incl. ingress (Phase 3) — planned
 └── .github/                   # issue/PR templates + CI workflow
