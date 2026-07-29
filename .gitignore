@@ -39,6 +39,7 @@ data/processed/*.parquet
 # JSON metric sidecars stay in git.
 
 # ---- Experiment tracking (MLflow, Phase 2) ----
+mlflow.db
 mlruns/
 mlartifacts/
 

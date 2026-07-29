@@ -71,6 +71,88 @@ The remaining targets are **optional**, only for specific jobs (`make help` list
 | `make train` | Retrain all model pipelines from `data/processed/` (run `make data` first). Only when changing models or data. |
 | `make setup-full` + `make app` | Run the Streamlit demo front-end. Installs the heavy torch stack — skip unless you want the UI. |
 
+## MLflow model registry
+
+The API supports two registered models:
+
+- `reviews-classifier-3class`
+- `reviews-classifier-5class`
+
+### Model loading
+
+When `MLFLOW_TRACKING_URI` is set, the API first tries to load the model referenced by the lowercase `production` alias:
+
+```text
+models:/<registered-model-name>@production
+```
+
+If the tracking URI is unset or registry loading fails, the API falls back to the configured local joblib default. If no override is configured, the project's normal local default selection is used. This allows the API and CI tests to run without an MLflow server.
+
+
+The `/models` endpoint reports the active source as either `registry` or `local_joblib`.
+
+### Promote a model
+
+For local testing, the run must belong to the `trustpilot-reviews` experiment and include these tags:
+
+```text
+schema = 3-class
+algorithm = LogReg
+```
+
+If `--run-id` is omitted, the script selects the latest finished LogReg run matching the requested schema:
+
+```bash
+uv run python scripts/register_model.py \
+  --schema 3-class
+```
+
+To promote a particular approved run:
+
+```bash
+uv run python scripts/register_model.py \
+  --schema 3-class \
+  --run-id <approved-run-id> \
+  --tracking-uri "<mlflow-tracking-uri>"
+```
+
+The tracking URI is selected in this order:
+
+1. `--tracking-uri`
+2. `MLFLOW_TRACKING_URI`
+3. The repository's local `mlruns/` store
+
+The script prints a warning when it falls back to `mlruns/`. This local store is intended for testing; the final team promotion must use the team's configured MLflow tracking URI.
+
+Promotion registers the run's `model` artifact under the appropriate registered-model name and moves the lowercase `production` alias to the new version using the MLflow client API. Deprecated model stages are not used.
+
+Restart the API after promotion so it clears its model cache and loads the version referenced by `production`. No source-code change or image rebuild is required.
+
+The final promotion of the team's approved model will be performed with an explicit `--run-id` after Card 2.1 merges.
+
+### Roll back a promotion
+
+Rollback means moving the `production` alias back to the previous model version. It does not delete or retrain a model.
+
+The promotion script prints the previous version and the Python code needed to restore it. For example:
+
+```bash
+MLFLOW_TRACKING_URI="<mlflow-tracking-uri>" uv run python - <<'PY'
+import mlflow
+from mlflow import MlflowClient
+
+client = MlflowClient()
+client.set_registered_model_alias(
+    name="reviews-classifier-3class",
+    alias="production",
+    version="<previous-version>",
+)
+PY
+```
+
+Restart the API after rollback so it reloads the version referenced by `production`.
+
+
 > **Note on scope:** the served API is **classical-only and torch-free** (keeps the env and
 > image small). The DistilBERT path becomes its own service in Phase 2's microservices split
 > (MILESTONES Task 2.4; weight handling → [CONTRIBUTING.md §7](CONTRIBUTING.md#7-data--model-handling)).
