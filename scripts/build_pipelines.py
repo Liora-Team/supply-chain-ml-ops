@@ -25,8 +25,6 @@ import os
 from pathlib import Path
 
 import joblib
-import mlflow
-import mlflow.sklearn
 import pandas as pd
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
@@ -36,6 +34,16 @@ from sklearn.metrics import accuracy_score, f1_score
 from sklearn.pipeline import Pipeline
 from sklearn.svm import LinearSVC
 from xgboost import XGBClassifier
+
+# Guarded import to keep experiment tracking optional (Opt-in)
+HAS_MLFLOW = False
+try:
+    import mlflow
+    import mlflow.sklearn
+
+    HAS_MLFLOW = True
+except ImportError:
+    pass
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data" / "processed"
@@ -100,20 +108,28 @@ def make_estimator(algo: str, params: dict):
 
 
 def main() -> None:
+    # Secure tracked environment variables loading
 
-    # Load environment variables from .env file
-    from dotenv import load_dotenv
+    # Secure tracked environment variables loading
+    if HAS_MLFLOW:
+        # Load environment variables from .env file
+        from dotenv import load_dotenv
 
-    load_dotenv()
+        load_dotenv()
 
-    # NEW MLFLOW FIX: Allow local file storage
-    os.environ["MLFLOW_ALLOW_FILE_STORE"] = "true"
+        tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "").strip()
+        if not tracking_uri:
+            # Fallback to local absolute file:// URI for platform compatibility
+            tracking_uri = ROOT.joinpath("mlruns").resolve().as_uri()
 
-    # MLflow Setup: Fallback to local mlruns if URI is not set in .env
-    # tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "mlruns")
-    tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns")
-    mlflow.set_tracking_uri(tracking_uri)
-    mlflow.set_experiment("trustpilot-reviews")
+        mlflow.set_tracking_uri(tracking_uri)
+        mlflow.set_experiment("trustpilot-reviews")
+        print(f"MLflow tracking is enabled. Target tracking URI: {tracking_uri}")
+    else:
+        print(
+            "MLflow not installed. "
+            "Pipeline training will execute offline without experiment tracking."
+        )
 
     train = pd.read_csv(DATA / "train.csv")
     test = pd.read_csv(DATA / "test.csv")
@@ -141,78 +157,79 @@ def main() -> None:
 
             algo_name = meta["model"]
 
-            # clf = make_estimator(meta["model"], params)
             clf = make_estimator(algo_name, params)
             pipe = Pipeline([("tfidf", TfidfVectorizer(**TFIDF_KWARGS)), ("clf", clf)])
+            xgb_shift = algo_name == "XGBoost" and schema == "5-class"
+
+            # Single assignment of out_id (clean workspace hygiene)
+            out_id = f"{stem}__{schema}"
 
             # XGBoost needs 0-indexed labels; 5-class stars are 1-5, so fit on y-1.
             # Inference detects the 0-indexed 5-class model and shifts +1
             # (src/inference._star_shift, which reads pipe.classes_).
+            # Fit model
+            if xgb_shift:
+                pipe.fit(Xtr_text, ytr - 1)
+                pred = pipe.predict(Xte_text) + 1
+            else:
+                pipe.fit(Xtr_text, ytr)
+                pred = pipe.predict(Xte_text)
 
-            # xgb_shift = meta["model"] == "XGBoost" and schema == "5-class"
-            xgb_shift = algo_name == "XGBoost" and schema == "5-class"
+            # Single evaluation of metrics to resolve duplication warnings
+            # All three metrics from the pipeline's own test predictions, so the
+            # leaderboard shows a consistent served-model row.
+            # Calculate metrics
+            f1 = f1_score(yte, pred, average="macro")
+            wf1 = f1_score(yte, pred, average="weighted")
+            acc = accuracy_score(yte, pred)
+            reported = meta.get("macro_f1")
+            delta = (f1 - reported) if reported is not None else float("nan")
 
-            out_id = f"{stem}__{schema}"
+            if HAS_MLFLOW:
+                # --- MLFLOW TRACKING STARTS HERE ---
+                with mlflow.start_run(run_name=out_id):
 
-            # --- MLFLOW TRACKING STARTS HERE ---
-            with mlflow.start_run(run_name=out_id):
+                    # 1. Log Tags
+                    mlflow.set_tags(
+                        {
+                            "algorithm": algo_name,
+                            "schema": schema,
+                            "xgb_label_shift_applied": str(xgb_shift),
+                        }
+                    )
 
-                # 1. Log Tags
-                mlflow.set_tags(
-                    {
-                        "algorithm": algo_name,
-                        "schema": schema,
-                        "xgb_label_shift_applied": str(xgb_shift),
-                    }
-                )
+                    # 2. Log Params
+                    mlflow.log_params(params)
+                    mlflow.log_params({f"tfidf_{k}": v for k, v in TFIDF_KWARGS.items()})
+                    mlflow.log_param("random_seed", RANDOM_STATE)
 
-                # 2. Log Params
-                mlflow.log_params(params)
-                mlflow.log_params({f"tfidf_{k}": v for k, v in TFIDF_KWARGS.items()})
-                mlflow.log_param("random_seed", RANDOM_STATE)
-
-                # Fit model
-                # Fit model
-                if xgb_shift:
-                    pipe.fit(Xtr_text, ytr - 1)
-                    pred = pipe.predict(Xte_text) + 1
-                else:
-                    pipe.fit(Xtr_text, ytr)
-                    pred = pipe.predict(Xte_text)
-
-                # All three metrics from the pipeline's own test predictions, so the
-                # leaderboard shows a consistent served-model row.
-                # Calculate metrics
-                f1 = f1_score(yte, pred, average="macro")
-                wf1 = f1_score(yte, pred, average="weighted")
-                acc = accuracy_score(yte, pred)
-                reported = meta.get("macro_f1")
-                delta = (f1 - reported) if reported is not None else float("nan")
-
-                # 3. Log Metrics
-                mlflow.log_metrics(
-                    {
+                    # 3. Log Metrics
+                    metrics_payload = {
                         "macro_f1": f1,
                         "weighted_f1": wf1,
                         "accuracy": acc,
-                        "parity_delta": delta if not pd.isna(delta) else 0.0,
                     }
-                )
+                    if not pd.isna(delta):
+                        metrics_payload["parity_delta"] = delta
+                    mlflow.log_metrics(metrics_payload)
 
-                # 4. Log Model with signature
-                # Convert to string to prevent the 'int' signature warning
-                input_example = Xte_text.astype(str).iloc[:2].tolist()
+                    # 4. Log Model with signature
+                    # Convert to string to prevent the 'int' signature warning
+                    input_example = Xte_text.astype(str).iloc[:2].tolist()
 
-                mlflow.sklearn.log_model(
-                    sk_model=pipe,
-                    artifact_path="model",
-                    input_example=input_example,
-                    skops_trusted_types=["xgboost.core.Booster", "xgboost.sklearn.XGBClassifier"],
-                )
+                    # Use 'name="model"' instead of deprecated 'artifact_path'
+                    mlflow.sklearn.log_model(
+                        sk_model=pipe,
+                        name="model",
+                        input_example=input_example,
+                        skops_trusted_types=[
+                            "xgboost.core.Booster",
+                            "xgboost.sklearn.XGBClassifier",
+                        ],
+                    )
+                # --- MLFLOW TRACKING ENDS HERE ---
 
-            # --- MLFLOW TRACKING ENDS HERE ---
-
-            out_id = f"{stem}__{schema}"
+            # Local serialization of baseline classical pipeline artifacts
             joblib.dump(pipe, OUT / f"{out_id}.joblib")
             meta["pipeline_macro_f1"] = float(f1)
             meta["pipeline_weighted_f1"] = float(wf1)
@@ -220,8 +237,6 @@ def main() -> None:
             meta["pipeline_note"] = "Bundled Pipeline(tfidf->clf) by scripts/build_pipelines.py"
             (OUT / f"{out_id}.json").write_text(json.dumps(meta, indent=2, default=str))
 
-            reported = meta.get("macro_f1")
-            delta = (f1 - reported) if reported is not None else float("nan")
             print(f"{stem:<38} {schema:<8} {reported:>9.4f} {f1:>9.4f}  {delta:>+7.4f}")
             rows.append((out_id, reported, f1))
 
