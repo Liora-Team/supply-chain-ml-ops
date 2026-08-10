@@ -8,10 +8,9 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 
-# Not needed by the API image
+# Not needed by any image target (scripts/ stays in: the training target runs it)
 tests/
 docs/
-scripts/
 pages/
 app.py
 data/
@@ -20,6 +19,10 @@ data/
 .env
 .env.*
 .DS_Store
+
+# DVC internals: cache/ alone is ~233 MB of build context, and config.local holds the
+# DagsHub token. No target COPYs them — keep them out of the context entirely.
+.dvc/
 
 # Weights restored by `make pull`; the API image only needs the classical pipelines
 models/distilbert_*/

@@ -39,3 +39,49 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+  # The test job never builds an image, so a broken Dockerfile target used to reach dev with
+  # CI green (Card 2.4-B review). These two targets are torch-free and build in a few minutes;
+  # `bert` is left out on purpose — its torch stack costs ~10 min for little extra coverage.
+  # No DVC pull: this checks that the targets build, not that they serve.
+  build-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build api target (compose default)
+        run: docker build --target api .
+
+      - name: Build training target
+        run: docker build --target training -t sc-mlops-training:ci .
+
+      # The three steps below reproduce the Linux bind-mount bug the UID override fixes.
+      # They only mean something on a real Linux host: Docker Desktop and OrbStack remap
+      # mount ownership, so this cannot be tested on the machines we develop on.
+      - name: Compose maps the training user to the host user
+        run: |
+          DOCKER_UID=$(id -u) DOCKER_GID=$(id -g) \
+            docker compose --profile train config --format json > /tmp/cfg.json
+          python3 - <<'PY'
+          import json, os, sys
+          user = json.load(open("/tmp/cfg.json"))["services"]["training"]["user"]
+          expected = f"{os.getuid()}:{os.getgid()}"
+          print("training user ->", user)
+          sys.exit(0 if user == expected else f"expected {expected}")
+          PY
+
+      - name: Training container writes its bind mount as the host user
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            -v "$PWD/models:/app/models" sc-mlops-training:ci \
+            python -c "from pathlib import Path; Path('/app/models/.ci_write_check').write_text('ok')"
+          test -f models/.ci_write_check
+
+      - name: Control — the image's own UID must NOT be able to
+        run: |
+          if docker run --rm -e HOME=/tmp \
+               -v "$PWD/models:/app/models" sc-mlops-training:ci \
+               python -c "from pathlib import Path; Path('/app/models/.ci_nope').write_text('x')"; then
+            echo "UID 10001 wrote a host-owned mount — this control proves nothing here."
+            exit 1
+          fi

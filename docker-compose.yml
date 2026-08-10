@@ -1,15 +1,40 @@
-# Phase 1: a single inference API service. Phase 2 adds mlflow / postgres / minio here.
+# One container per responsibility (Card 2.4-B). Services address each other by
+# service name over the compose network — never localhost.
+# The nginx proxy is the single public entry point: api and mlflow are internal-only.
+# Profiles keep heavy paths opt-in: `--profile train` / `--profile bert`.
 services:
-  api:
-    build: .
-    image: supply-chain-mlops-api:latest
-    container_name: sc-mlops-api
+  # Single public entry: / -> api, /mlflow/ -> mlflow. Home for TLS from Card 3.3.
+  proxy:
+    image: nginx:1.29-alpine
+    container_name: sc-mlops-proxy
     ports:
-      - "8000:8000"
+      - "80:80" # 443 arrives with TLS in Card 3.3
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      target: api
+    image: supply-chain-mlops-api:latest
+    # No container_name: lets `docker compose up --scale api=N` run replicas
+    # behind the proxy. Not published — reachable only through nginx.
+    expose:
+      - "8000"
     environment:
       # Point these at an HF hub id or mounted path to enable the DistilBERT path (Phase 2).
       DISTILBERT_3CLASS: "${DISTILBERT_3CLASS:-}"
       DISTILBERT_5CLASS: "${DISTILBERT_5CLASS:-}"
+      # Card 2.2 registry load: tracking credentials pass through at runtime, never baked in.
+      MLFLOW_TRACKING_URI: "${MLFLOW_TRACKING_URI:-}"
+      MLFLOW_TRACKING_USERNAME: "${MLFLOW_TRACKING_USERNAME:-}"
+      MLFLOW_TRACKING_PASSWORD: "${MLFLOW_TRACKING_PASSWORD:-}"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 30s
@@ -17,3 +42,91 @@ services:
       retries: 3
       start_period: 25s
     restart: unless-stopped
+
+  # One-shot training job — `docker compose --profile train up training`.
+  # Rebuilds the served pipelines; a plain `docker compose up` never retrains.
+  training:
+    profiles: ["train"]
+    build:
+      context: .
+      target: training
+    image: supply-chain-mlops-training:latest
+    container_name: sc-mlops-training
+    # The bind mounts below are host-owned, and this job writes to them. On Linux the
+    # image user (UID 10001) cannot, so run as the host user:
+    #   DOCKER_UID=$(id -u) DOCKER_GID=$(id -g) docker compose --profile train up --build training
+    # Not named UID/GID: bash and zsh both make those readonly, so `UID=$(id -u) cmd`
+    # aborts with "UID: readonly variable" before the command ever runs.
+    # Docker Desktop / OrbStack remap mount ownership, so macOS needs neither var.
+    user: "${DOCKER_UID:-10001}:${DOCKER_GID:-10001}"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+    environment:
+      # An overridden UID has no /etc/passwd entry, so Docker would set HOME=/ (unwritable).
+      HOME: /tmp
+      # Team truth is DagsHub (.env); for offline local dev set
+      # MLFLOW_TRACKING_URI=http://mlflow:5000/mlflow to log into the local mlflow
+      # service (--static-prefix puts its REST API under /mlflow too).
+      MLFLOW_TRACKING_URI: "${MLFLOW_TRACKING_URI:-}"
+      MLFLOW_TRACKING_USERNAME: "${MLFLOW_TRACKING_USERNAME:-}"
+      MLFLOW_TRACKING_PASSWORD: "${MLFLOW_TRACKING_PASSWORD:-}"
+    restart: "no"
+
+  # Local MLflow tracking UI for offline dev only — team truth lives on DagsHub.
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.14.0
+    container_name: sc-mlops-mlflow
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri sqlite:////mlruns/mlflow.db
+      --artifacts-destination /mlruns/artifacts
+      --static-prefix /mlflow
+      --allowed-hosts localhost,localhost:*,mlflow,mlflow:*
+    # allowed-hosts: the server's DNS-rebinding guard otherwise 403s in-network
+    # clients that address it by service name (Host: mlflow:5000).
+    volumes:
+      - mlruns:/mlruns
+    # Not published — the UI is reached through the proxy at /mlflow/.
+    expose:
+      - "5000"
+    healthcheck:
+      # --static-prefix moves the whole app (health endpoint included) under /mlflow.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5000/mlflow/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  # DistilBERT as its own torch-only service — `docker compose --profile bert up bert`.
+  # Keeps the classical api image slim; weights resolve via DISTILBERT_* (CONTRIBUTING.md §7).
+  bert:
+    profiles: ["bert"]
+    build:
+      context: .
+      target: bert
+    image: supply-chain-mlops-bert:latest
+    container_name: sc-mlops-bert
+    volumes:
+      # DVC-restored weights (models/distilbert_{3,5}class/final/, Card 2.3) reach the
+      # container through this mount.
+      - ./models:/app/models
+    environment:
+      # Default to the DVC-restored weights in the mounted models/ dir; override with a
+      # custom path or HF hub id via .env (CONTRIBUTING.md §7).
+      DISTILBERT_3CLASS: "${DISTILBERT_3CLASS:-/app/models/distilbert_3class/final}"
+      DISTILBERT_5CLASS: "${DISTILBERT_5CLASS:-/app/models/distilbert_5class/final}"
+      MLFLOW_TRACKING_URI: "${MLFLOW_TRACKING_URI:-}"
+      MLFLOW_TRACKING_USERNAME: "${MLFLOW_TRACKING_USERNAME:-}"
+      MLFLOW_TRACKING_PASSWORD: "${MLFLOW_TRACKING_PASSWORD:-}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+    restart: unless-stopped
+
+volumes:
+  mlruns:

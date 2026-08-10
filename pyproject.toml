@@ -65,6 +65,19 @@ dev = [
 # API and the whole test suite. Heavier stacks are opt-in: `uv sync --group app --group bert`.
 default-groups = ["api", "dev"]
 
+# arm64-Linux (the bert container built on Apple-silicon) gets CPU-only torch wheels: the
+# default PyPI wheels drag the multi-GB nvidia CUDA stack, useless without a GPU. macOS keeps
+# PyPI (CPU/MPS built in), and x86_64 Linux keeps the CUDA-capable defaults so a GPU box can
+# retrain DistilBERT with this same lockfile.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" }]
+torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" }]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
