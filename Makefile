@@ -51,7 +51,7 @@ up:  ## Build + start the compose stack (proxy + api + mlflow)
 down:  ## Stop the compose stack
 	docker compose down
 
-build:  ## Build the API image only
+build:  ## Build the default (api) image — train/bert are profile-gated
 	docker compose build
 
 clean:  ## Remove caches

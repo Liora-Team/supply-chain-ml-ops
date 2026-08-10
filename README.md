@@ -182,8 +182,11 @@ docker compose up -d                                  # proxy + api + mlflow
 curl -s localhost/health                              # api through nginx
 open http://localhost/mlflow/                         # local MLflow UI
 
-# One-shot training, logged to the local MLflow (or drop the URI override to use .env/DagsHub):
-MLFLOW_TRACKING_URI=http://mlflow:5000/mlflow docker compose --profile train up --build training
+# One-shot training. Needs `make pull` first — data/processed/*.csv is DVC-tracked.
+# On Linux, UID/GID make the container write the bind mounts as you (macOS: not needed).
+# Drop the URI override to log to .env/DagsHub instead of the local mlflow service.
+MLFLOW_TRACKING_URI=http://mlflow:5000/mlflow \
+  UID=$(id -u) GID=$(id -g) docker compose --profile train up --build training
 
 docker compose --profile bert up -d --build bert      # DistilBERT service (heavy: torch)
 ```

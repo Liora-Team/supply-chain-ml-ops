@@ -55,3 +55,34 @@ the registry's hub-id heuristic and be marked loadable while missing.
 **Consequence.** With weights absent the service still starts (registry marks the entries
 not loadable — classical serving unaffected); once DVC restores them, no configuration is
 needed. Override via `.env` for a custom path or HF hub id.
+
+## 5. Non-root images, but the training job runs as the host user
+
+**Context.** Every target runs as UID 10001 for container hardening. `training` is the one
+target that *writes* — `scripts/build_pipelines.py` emits into the host-owned `models/` bind
+mount. On Linux those files belong to UID 1000, so the job gets `EACCES`; Docker Desktop and
+OrbStack remap mount ownership, so the failure is invisible on macOS.
+
+Ownership also can't be handed over with `chown -R app:app /app`: `UV_PROJECT_ENVIRONMENT`
+puts the venv under `/app`, so a recursive chown rewrites every dependency file into a
+duplicate image layer — the entire torch stack twice in the bert image.
+
+**Decision.** Ownership is set on the `COPY` (`--chown=app:app`) and never recursively; the
+venv stays root-owned and world-readable, which is all `uv run --no-sync` needs. The
+`training` service alone takes `user: "${UID:-10001}:${GID:-10001}"`, defaulting to the image
+user, plus `HOME=/tmp` because an overridden UID has no `/etc/passwd` entry.
+
+**Consequence.** Images keep a non-root default and stop carrying a duplicated venv. Linux
+contributors prefix the train profile with `UID=$(id -u) GID=$(id -g)`; macOS needs nothing.
+
+## 6. The bert image still bakes `models/`
+
+**Context.** The bert service bind-mounts `./models`, so the copy baked at build time is
+shadowed at runtime — dead weight on the face of it.
+
+**Decision.** Keep it. The bert target runs the same `api.main:app` and serves the classical
+pipelines too, so baking them keeps the image runnable standalone (`docker run` with no
+mount). `.dockerignore` already excludes `models/distilbert_*/`, so the cost is a few MB of
+joblib, not the 510 MB of weights.
+
+**Consequence.** Slight redundancy under compose, no footgun outside it.
