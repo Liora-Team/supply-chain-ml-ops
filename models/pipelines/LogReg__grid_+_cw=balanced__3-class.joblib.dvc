@@ -1,0 +1,5 @@
+outs:
+- md5: a4fbfe01433cd6e215398ffb8e3a6845
+  size: 632372
+  hash: md5
+  path: LogReg__grid_+_cw=balanced__3-class.joblib

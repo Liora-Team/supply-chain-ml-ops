@@ -71,42 +71,71 @@ def _star_shift(classes: list[int], schema: str) -> int:
     return 1 if (schema == "5-class" and classes and min(classes) == 0) else 0
 
 
-def predict_classical(model_id: str, text: str) -> Prediction:
-    """Lemmatise -> Pipeline(tfidf -> clf) predict. Input is TEXT, not a matrix."""
-    entry = registry.get(model_id)
-    pipe = load_classical(model_id)
-    clean = preprocess_text(text)  # lemmatised text the tfidf expects
-    X = [clean]  # pipeline vectorises internally
+def _predict_with_pipeline(
+    model_id: str,
+    text: str,
+    pipe,
+    schema: str,
+) -> Prediction:
+    """Predict using an already-loaded classical pipeline."""
+    clean = preprocess_text(text)
+    X = [clean]
 
     raw_classes = [int(c) for c in pipe.classes_]
-    shift = _star_shift(raw_classes, entry.schema)
+    shift = _star_shift(raw_classes, schema)
     classes = [c + shift for c in raw_classes]
     label = int(pipe.predict(X)[0]) + shift
 
-    # Probabilities: predict_proba when available, else softmax of decision_function
     if hasattr(pipe, "predict_proba"):
         p = pipe.predict_proba(X)[0]
         kind = "proba"
-    else:  # LinearSVC — only decision_function
+    else:
         scores = pipe.decision_function(X)[0]
         scores = np.atleast_1d(scores)
         p = _softmax(scores)
         kind = "softmax(decision)"
 
-    # strict=False: a binary LinearSVC decision_function yields ONE score for
-    # TWO classes, so the zip is legitimately uneven in that case.
-    probs = {label_name(c, entry.schema): float(pi) for c, pi in zip(classes, p, strict=False)}
+    probs = {label_name(c, schema): float(pi) for c, pi in zip(classes, p, strict=False)}
+
     return Prediction(
         model_id=model_id,
-        schema=entry.schema,
+        schema=schema,
         label=label,
-        label_display=label_name(label, entry.schema),
+        label_display=label_name(label, schema),
         probs=probs,
         proba_kind=kind,
     )
 
 
-# Bert
+def predict_classical(model_id: str, text: str) -> Prediction:
+    """Lemmatise -> Pipeline(tfidf -> clf) predict. Input is TEXT, not a matrix."""
+    entry = registry.get(model_id)
+    pipe = load_classical(model_id)
+
+    return _predict_with_pipeline(
+        model_id=model_id,
+        text=text,
+        pipe=pipe,
+        schema=entry.schema,
+    )
+
+
+def predict_loaded_classical(
+    model_id: str,
+    text: str,
+    *,
+    pipe,
+    schema: str,
+) -> Prediction:
+    """Predict using a classical pipeline that has already been loaded."""
+    return _predict_with_pipeline(
+        model_id=model_id,
+        text=text,
+        pipe=pipe,
+        schema=schema,
+    )
+
+
 # Tokenizer truncation length used at fine-tune time — inference must match it.
 BERT_MAX_LENGTH = 160
 
