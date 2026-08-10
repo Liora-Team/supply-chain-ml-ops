@@ -39,3 +39,18 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+  # The test job never builds an image, so a broken Dockerfile target used to reach dev with
+  # CI green (Card 2.4-B review). These two targets are torch-free and build in a few minutes;
+  # `bert` is left out on purpose — its torch stack costs ~10 min for little extra coverage.
+  # No DVC pull: this checks that the targets build, not that they serve.
+  build-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build api target (compose default)
+        run: docker build --target api .
+
+      - name: Build training target
+        run: docker build --target training .
