@@ -1,6 +1,6 @@
 # Multi-target image — one build target per service responsibility (Card 2.4-B):
 #   api      — classical inference API, torch-free (the default target)
-#   training — one-shot job that rebuilds the served pipelines (core + track groups)
+#   training — one-shot job that rebuilds the served pipelines (core deps only)
 #   bert     — the same API plus the torch stack for DistilBERT (api + bert groups)
 # Targets differ only in which uv dependency groups they sync.
 
@@ -27,14 +27,14 @@ COPY pyproject.toml uv.lock ./
 
 # --- training: one-shot pipeline rebuild (scripts/build_pipelines.py) ---
 # No NLTK corpora: data/processed/*.csv is already lemmatised by scripts/get_data.py.
-# The `track` group lands with Card 2.1 (PR #28) — this target builds once it merges.
+# Core deps only — build_pipelines.py imports nothing beyond pandas/joblib/sklearn/xgboost.
+# Card 2.1 adds `--group track` here, together with the MLflow logging that needs it.
 FROM base AS training
 
-RUN uv sync --frozen --no-install-project --no-default-groups --group track
+RUN uv sync --frozen --no-install-project --no-default-groups
 
-COPY src ./src
-COPY scripts ./scripts
-RUN chown -R app:app /app
+COPY --chown=app:app src ./src
+COPY --chown=app:app scripts ./scripts
 USER app
 
 # data/ and models/ are bind mounts (docker-compose.yml), never baked into the image.
@@ -47,10 +47,11 @@ RUN uv sync --frozen --no-install-project --no-default-groups --group api --grou
 
 RUN uv run --no-sync python -c "import nltk; [nltk.download(p, quiet=True, download_dir='/usr/share/nltk_data') for p in ('stopwords','wordnet','omw-1.4')]"
 
-COPY src ./src
-COPY api ./api
-COPY models ./models
-RUN chown -R app:app /app
+# models/ is baked in (minus the DVC weights, see .dockerignore) so this image also serves the
+# classical pipelines standalone; the compose bind mount shadows it when the stack runs.
+COPY --chown=app:app src ./src
+COPY --chown=app:app api ./api
+COPY --chown=app:app models ./models
 USER app
 
 EXPOSE 8000
@@ -69,10 +70,11 @@ RUN uv sync --frozen --no-install-project --no-default-groups --group api
 RUN uv run --no-sync python -c "import nltk; [nltk.download(p, quiet=True, download_dir='/usr/share/nltk_data') for p in ('stopwords','wordnet','omw-1.4')]"
 
 # Application code + the small classical model artifacts.
-COPY src ./src
-COPY api ./api
-COPY models ./models
-RUN chown -R app:app /app
+# Ownership is set on the COPY itself: a `chown -R /app` would rewrite every file in
+# /app/.venv into a duplicate layer. The runtime user only needs to read the venv.
+COPY --chown=app:app src ./src
+COPY --chown=app:app api ./api
+COPY --chown=app:app models ./models
 USER app
 
 EXPOSE 8000
