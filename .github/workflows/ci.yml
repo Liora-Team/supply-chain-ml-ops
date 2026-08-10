@@ -53,4 +53,34 @@ jobs:
         run: docker build --target api .
 
       - name: Build training target
-        run: docker build --target training .
+        run: docker build --target training -t sc-mlops-training:ci .
+
+      # The three steps below reproduce the Linux bind-mount bug the UID override fixes.
+      # They only mean something on a real Linux host: Docker Desktop and OrbStack remap
+      # mount ownership, so this cannot be tested on the machines we develop on.
+      - name: Compose maps the training user to the host user
+        run: |
+          UID=$(id -u) GID=$(id -g) docker compose --profile train config --format json > /tmp/cfg.json
+          python3 - <<'PY'
+          import json, os, sys
+          user = json.load(open("/tmp/cfg.json"))["services"]["training"]["user"]
+          expected = f"{os.getuid()}:{os.getgid()}"
+          print("training user ->", user)
+          sys.exit(0 if user == expected else f"expected {expected}")
+          PY
+
+      - name: Training container writes its bind mount as the host user
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            -v "$PWD/models:/app/models" sc-mlops-training:ci \
+            python -c "from pathlib import Path; Path('/app/models/.ci_write_check').write_text('ok')"
+          test -f models/.ci_write_check
+
+      - name: Control — the image's own UID must NOT be able to
+        run: |
+          if docker run --rm -e HOME=/tmp \
+               -v "$PWD/models:/app/models" sc-mlops-training:ci \
+               python -c "from pathlib import Path; Path('/app/models/.ci_nope').write_text('x')"; then
+            echo "UID 10001 wrote a host-owned mount — this control proves nothing here."
+            exit 1
+          fi
