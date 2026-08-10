@@ -69,11 +69,17 @@ duplicate image layer — the entire torch stack twice in the bert image.
 
 **Decision.** Ownership is set on the `COPY` (`--chown=app:app`) and never recursively; the
 venv stays root-owned and world-readable, which is all `uv run --no-sync` needs. The
-`training` service alone takes `user: "${UID:-10001}:${GID:-10001}"`, defaulting to the image
-user, plus `HOME=/tmp` because an overridden UID has no `/etc/passwd` entry.
+`training` service alone takes `user: "${DOCKER_UID:-10001}:${DOCKER_GID:-10001}"`, defaulting
+to the image user, plus `HOME=/tmp` because an overridden UID has no `/etc/passwd` entry.
+
+The vars are **not** named `UID`/`GID`: bash and zsh both mark those readonly, so the obvious
+`UID=$(id -u) docker compose …` aborts with `UID: readonly variable` before compose runs. CI
+caught this — the first version of this decision shipped that broken incantation in the README.
 
 **Consequence.** Images keep a non-root default and stop carrying a duplicated venv. Linux
-contributors prefix the train profile with `UID=$(id -u) GID=$(id -g)`; macOS needs nothing.
+contributors prefix the train profile with `DOCKER_UID=$(id -u) DOCKER_GID=$(id -g)`; macOS
+needs nothing. CI asserts all of it on a real Linux runner, including a control proving UID
+10001 still cannot write the mount.
 
 ## 6. The bert image still bakes `models/`
 

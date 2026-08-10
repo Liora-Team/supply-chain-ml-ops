@@ -60,7 +60,8 @@ jobs:
       # mount ownership, so this cannot be tested on the machines we develop on.
       - name: Compose maps the training user to the host user
         run: |
-          UID=$(id -u) GID=$(id -g) docker compose --profile train config --format json > /tmp/cfg.json
+          DOCKER_UID=$(id -u) DOCKER_GID=$(id -g) \
+            docker compose --profile train config --format json > /tmp/cfg.json
           python3 - <<'PY'
           import json, os, sys
           user = json.load(open("/tmp/cfg.json"))["services"]["training"]["user"]

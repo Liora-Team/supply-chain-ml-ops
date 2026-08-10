@@ -54,9 +54,11 @@ services:
     container_name: sc-mlops-training
     # The bind mounts below are host-owned, and this job writes to them. On Linux the
     # image user (UID 10001) cannot, so run as the host user:
-    #   UID=$(id -u) GID=$(id -g) docker compose --profile train up --build training
+    #   DOCKER_UID=$(id -u) DOCKER_GID=$(id -g) docker compose --profile train up --build training
+    # Not named UID/GID: bash and zsh both make those readonly, so `UID=$(id -u) cmd`
+    # aborts with "UID: readonly variable" before the command ever runs.
     # Docker Desktop / OrbStack remap mount ownership, so macOS needs neither var.
-    user: "${UID:-10001}:${GID:-10001}"
+    user: "${DOCKER_UID:-10001}:${DOCKER_GID:-10001}"
     volumes:
       - ./data:/app/data
       - ./models:/app/models
