@@ -52,10 +52,17 @@ services:
       target: training
     image: supply-chain-mlops-training:latest
     container_name: sc-mlops-training
+    # The bind mounts below are host-owned, and this job writes to them. On Linux the
+    # image user (UID 10001) cannot, so run as the host user:
+    #   UID=$(id -u) GID=$(id -g) docker compose --profile train up --build training
+    # Docker Desktop / OrbStack remap mount ownership, so macOS needs neither var.
+    user: "${UID:-10001}:${GID:-10001}"
     volumes:
       - ./data:/app/data
       - ./models:/app/models
     environment:
+      # An overridden UID has no /etc/passwd entry, so Docker would set HOME=/ (unwritable).
+      HOME: /tmp
       # Team truth is DagsHub (.env); for offline local dev set
       # MLFLOW_TRACKING_URI=http://mlflow:5000/mlflow to log into the local mlflow
       # service (--static-prefix puts its REST API under /mlflow too).
