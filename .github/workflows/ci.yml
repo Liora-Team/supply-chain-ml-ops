@@ -19,8 +19,9 @@ jobs:
       - name: Install Python 3.12
         run: uv python install 3.12
 
-      - name: Sync env (core + api + dev, torch-free)
-        run: uv sync --frozen
+      # Added '--group track' as requested in PR #32 review.
+      - name: Sync env (core + api + dev + track, torch-free)
+        run: uv sync --frozen --group track
 
       - name: Lint + format check
         run: |
