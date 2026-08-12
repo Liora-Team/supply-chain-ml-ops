@@ -27,4 +27,8 @@ repos:
         name: detect secrets
         entry: uv run detect-secrets-hook --baseline .secrets.baseline
         language: system
-        exclude: ^uv\.lock$
+        # `*.dvc` pointers are content-addressed md5s by construction, which the
+        # HexHighEntropyString plugin flags. Note this matches the pointer files
+        # only — `.dvc/config` (and the gitignored `.dvc/config.local`, which does
+        # hold the DagsHub token) are still scanned.
+        exclude: ^uv\.lock$|\.dvc$

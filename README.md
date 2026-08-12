@@ -53,9 +53,9 @@ curl -s -X POST localhost:8000/predict \
   -d '{"text":"terrible, broke in a day","schema":"3-class"}'
 # → {"label_display":"Negative", ...}
 
-# …or fully containerized:
+# …or fully containerized (nginx is the single public entry — see "Containers" below):
 make up                          # docker compose up --build -d
-# (once Phase 2's proxy lands, the public entry is http://localhost/ — nginx → api)
+curl -s localhost/health         # → api via the nginx proxy on port 80
 ```
 > ⚠️ **Important**
 >
@@ -160,6 +160,42 @@ Restart the API after rollback so it reloads the version referenced by `producti
 > image small). The DistilBERT path becomes its own service in Phase 2's microservices split
 > (MILESTONES Task 2.4; weight handling → [CONTRIBUTING.md §7](CONTRIBUTING.md#7-data--model-handling)).
 
+## Containers (compose)
+
+One container per responsibility; the nginx **proxy** is the only published entry point
+(port 80 — TLS on 443 lands with Card 3.3). Internal services talk over the compose
+network by service name and are never published directly.
+
+```
+                 ┌────────► api:8000     (classical inference — /)
+localhost:80 ─ proxy (nginx)
+                 └────────► mlflow:5000  (local tracking UI — /mlflow/)
+```
+
+| Service | Runs | Notes |
+|---------|------|-------|
+| `proxy` | always | nginx, config in `deploy/nginx/nginx.conf`. Routes `/` → api, `/mlflow/` → mlflow. |
+| `api` | always | Torch-free classical API (Dockerfile `api` target). Scale with `docker compose up -d --scale api=N` (then `docker compose restart proxy` to refresh its upstream pool). |
+| `mlflow` | always | Local tracking UI for offline dev on a named volume — team truth lives on DagsHub. |
+| `training` | `--profile train` | One-shot pipeline rebuild (`training` target) over bind-mounted `data/` + `models/`. A plain `docker compose up` never retrains. |
+| `bert` | `--profile bert` | DistilBERT torch image (`bert` target); weights via `DISTILBERT_*` ([CONTRIBUTING.md §7](CONTRIBUTING.md#7-data--model-handling)). |
+
+```bash
+docker compose up -d                                  # proxy + api + mlflow
+curl -s localhost/health                              # api through nginx
+open http://localhost/mlflow/                         # local MLflow UI
+
+# One-shot training. Needs `make pull` first — data/processed/*.csv is DVC-tracked.
+# On Linux, DOCKER_UID/DOCKER_GID make the container write the bind mounts as you
+# (macOS: not needed). Drop the URI override to log to .env/DagsHub instead.
+MLFLOW_TRACKING_URI=http://mlflow:5000/mlflow \
+  DOCKER_UID=$(id -u) DOCKER_GID=$(id -g) docker compose --profile train up --build training
+
+docker compose --profile bert up -d --build bert      # DistilBERT service (heavy: torch)
+```
+
+Credentials (`MLFLOW_*`) are passed through from `.env` at runtime — never baked into images.
+
 ## Repository structure
 
 ```
@@ -168,8 +204,9 @@ supply-chain-ml-ops/
 ├── CONTRIBUTING.md            # collaborator rules: git flow, commits, PRs, style, tests
 ├── MILESTONES.md              # roadmap + per-phase technical tasks with owners
 ├── Makefile                   # make setup / test / lint / api / app / data / up
-├── Dockerfile                 # slim, torch-free image for the inference API
-├── docker-compose.yml         # the api service (Phase 2 adds nginx proxy / mlflow / db / storage)
+├── Dockerfile                 # multi-target: api (torch-free, default) / training / bert
+├── docker-compose.yml         # proxy (nginx) + api + mlflow, plus train/bert profiles
+├── deploy/                    # nginx reverse-proxy config (deploy/nginx/nginx.conf)
 ├── pyproject.toml             # uv project — core deps + optional groups (api/app/bert/data/dev)
 ├── docs/                      # ML_CANVAS, PROJECT_MANAGEMENT, TASKS_DONE, DATA_SOURCES, adr/
 ├── src/                       # core package: preprocessing, inference, registry, eda, explain, findings, ui

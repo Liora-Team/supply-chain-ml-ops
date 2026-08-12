@@ -45,13 +45,13 @@ train:  ## Rebuild the served model pipelines (run `make data` first)
 eda-artifacts:  ## Rebuild the committed EDA artefacts (needs the uncommitted featurised parquet)
 	uv run --group data python scripts/build_eda_artifacts.py
 
-up:  ## Build + start the API container
+up:  ## Build + start the compose stack (proxy + api + mlflow)
 	docker compose up --build -d
 
-down:  ## Stop the API container
+down:  ## Stop the compose stack
 	docker compose down
 
-build:  ## Build the API image only
+build:  ## Build the default (api) image — train/bert are profile-gated
 	docker compose build
 
 clean:  ## Remove caches
