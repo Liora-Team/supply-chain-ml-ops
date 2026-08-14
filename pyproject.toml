@@ -49,6 +49,11 @@ bert = [
     "transformers>=5.9.0",
     "accelerate>=0.30",
 ]
+# Experiment Tracking group (MLflow + dotenv). Opt-in only.
+track = [
+    "mlflow>=3.14.0",
+    "python-dotenv>=1.0.1",
+]
 # Developer tooling.
 dev = [
     "pytest>=8.0",

@@ -27,11 +27,12 @@ COPY pyproject.toml uv.lock ./
 
 # --- training: one-shot pipeline rebuild (scripts/build_pipelines.py) ---
 # No NLTK corpora: data/processed/*.csv is already lemmatised by scripts/get_data.py.
-# Core deps only — build_pipelines.py imports nothing beyond pandas/joblib/sklearn/xgboost.
-# Card 2.1 adds `--group track` here, together with the MLflow logging that needs it.
+# `--group track` installs mlflow so containerized runs can log to the compose
+# mlflow service (or DagsHub) via MLFLOW_TRACKING_URI; without it build_pipelines.py
+# silently trains untracked.
 FROM base AS training
 
-RUN uv sync --frozen --no-install-project --no-default-groups
+RUN uv sync --frozen --no-install-project --no-default-groups --group track
 
 COPY --chown=app:app src ./src
 COPY --chown=app:app scripts ./scripts

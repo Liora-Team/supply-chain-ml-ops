@@ -68,8 +68,11 @@ The remaining targets are **optional**, only for specific jobs (`make help` list
 | Target | When you need it |
 |--------|------------------|
 | `make data` | Rebuild `data/processed/` from the raw HuggingFace dataset (~123k reviews). Only needed before retraining — the API/tests never read it. |
-| `make train` | Retrain all model pipelines from `data/processed/` (run `make data` first). Only when changing models or data. |
+| `make train` | Train baseline pipelines locally and optionally track experiments with MLflow. |
 | `make setup-full` + `make app` | Run the Streamlit demo front-end. Installs the heavy torch stack — skip unless you want the UI. |
+
+**Experiment Tracking (MLflow):**
+To optionally track experiments with MLflow (Card 2.1), install the tracking dependencies using `uv sync --group track` and configure `.env` based on `.env.example`.
 
 ## MLflow model registry
 
@@ -205,7 +208,7 @@ supply-chain-ml-ops/
 ├── docker-compose.yml         # proxy (nginx) + api + mlflow, plus train/bert profiles
 ├── deploy/                    # nginx reverse-proxy config (deploy/nginx/nginx.conf)
 ├── pyproject.toml             # uv project — core deps + optional groups (api/app/bert/data/dev)
-├── docs/                      # ML_CANVAS, PROJECT_MANAGEMENT, TASKS_DONE, DATA_SOURCES
+├── docs/                      # ML_CANVAS, PROJECT_MANAGEMENT, TASKS_DONE, DATA_SOURCES, adr/
 ├── src/                       # core package: preprocessing, inference, registry, eda, explain, findings, ui
 ├── api/                       # FastAPI inference service (main.py)
 ├── scripts/                   # get_data.py (collect+preprocess) · build_pipelines.py (train)
@@ -239,6 +242,7 @@ One canonical home per topic — if you're about to write the same thing twice, 
 | [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) | Dataset detail + options for new data over time (drift/retraining) |
 | [docs/TASKS_DONE.md](docs/TASKS_DONE.md) | Completed Phase-1 tasks, issue-ready for the board |
 | [docs/TODO.md](docs/TODO.md) | **Milestones 2–4** cards — per-member checklists, branch names, acceptance criteria (source for the Project board) |
+| [docs/adr/](docs/adr/) | **Architecture Decision Records** (e.g. ADR 001 — MLflow 3.14 local storage fallback) |
 
 **New to the repo? Read in this order:**
 
