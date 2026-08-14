@@ -56,6 +56,18 @@ jobs:
       - name: Build training target
         run: docker build --target training -t sc-mlops-training:ci .
 
+      # Torch-free like api/training, so the bert cost argument doesn't apply here.
+      - name: Build airflow target (Card 3.1)
+        run: docker build --target airflow .
+
+      - name: Airflow service is profile-gated (default stack stays light)
+        run: |
+          if docker compose config --services | grep -qx airflow; then
+            echo "airflow leaked into the default (profile-less) stack"
+            exit 1
+          fi
+          docker compose --profile airflow config --services | grep -qx airflow
+
       # The three steps below reproduce the Linux bind-mount bug the UID override fixes.
       # They only mean something on a real Linux host: Docker Desktop and OrbStack remap
       # mount ownership, so this cannot be tested on the machines we develop on.
