@@ -160,6 +160,25 @@ Restart the API after rollback so it reloads the version referenced by `producti
 > image small). The DistilBERT path becomes its own service in Phase 2's microservices split
 > (MILESTONES Task 2.4; weight handling → [CONTRIBUTING.md §7](CONTRIBUTING.md#7-data--model-handling)).
 
+
+## Automated promotion gate
+
+The Card 3.2 model DAG promotes a candidate only when:
+
+candidate\_macro\_f1 > production\_macro\_f1
+
+The production score is read at runtime from the MLflow run behind the
+current lowercase `production` alias; it is not compared against a
+hard-coded baseline. Equal or worse candidates are rejected and the
+`production` alias remains unchanged.
+
+For the required negative-path demonstration, the DAG accepts a
+`train_subset` parameter, which deliberately trains on fewer rows while
+keeping the normal test split for evaluation.
+
+Manual rollback is performed by moving the `production` alias back to
+the previous registered version; see "Roll back a promotion" above.
+
 ## Containers (compose)
 
 One container per responsibility; the nginx **proxy** is the only published entry point

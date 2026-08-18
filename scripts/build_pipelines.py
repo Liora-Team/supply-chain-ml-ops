@@ -139,6 +139,10 @@ def main() -> None:
     train = pd.read_csv(DATA / "train.csv")
     test = pd.read_csv(DATA / "test.csv")
 
+    train_subset = os.getenv("TRAIN_SUBSET")
+    if train_subset:
+        train = train.head(int(train_subset))
+
     Xtr_text = train["review_lemma"].fillna("")
     Xte_text = test["review_lemma"].fillna("")
     ytr5, yte5 = train["stars"].to_numpy(), test["stars"].to_numpy()
