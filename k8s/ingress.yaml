@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sc-mlops-ingress
+  namespace: sc-mlops
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.sc-mlops.local
+      secretName: sc-mlops-tls
+  rules:
+    - host: api.sc-mlops.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sc-mlops-api
+                port:
+                  number: 8000

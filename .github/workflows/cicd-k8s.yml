@@ -1,0 +1,135 @@
+name: cicd-k8s
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/liora-team/supply-chain-ml-ops-api
+  K8S_NAMESPACE: sc-mlops
+  INGRESS_HOST: api.sc-mlops.local
+
+jobs:
+  publish_api_image:
+    name: Build & push API image to GHCR (SHA tag)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push API image (no latest)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: api
+          push: true
+          tags: ${{ env.IMAGE }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+  k8s_rehearsal_kind:
+    name: K8s deploy, HTTPS test & rollback (kind)
+    runs-on: ubuntu-latest
+    needs: [publish_api_image]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.30.0
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1.10.0
+        with:
+          cluster_name: sc-mlops-ci
+
+      - name: Install ingress-nginx
+        run: |
+          set -euo pipefail
+          kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.3/deploy/static/provider/cloud/deploy.yaml
+          kubectl -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=300s
+
+      - name: Setup namespace + runtime secrets + GHCR pull secret + TLS (idempotent)
+        run: |
+          set -euo pipefail
+
+          kubectl apply -f k8s/namespace.yaml
+
+          # Runtime secrets (MLFLOW_* empty so the API doesn't depend on external services in CI)
+          kubectl -n "${K8S_NAMESPACE}" create secret generic sc-mlops-secrets \
+            --from-literal=API_KEY=dummy-ci \
+            --from-literal=MLFLOW_TRACKING_URI="" \
+            --from-literal=MLFLOW_TRACKING_USERNAME="" \
+            --from-literal=MLFLOW_TRACKING_PASSWORD="" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          # GHCR pull secret (safe even if the package is public)
+          kubectl -n "${K8S_NAMESPACE}" create secret docker-registry ghcr-pull-secret \
+            --docker-server="${REGISTRY}" \
+            --docker-username="${{ github.actor }}" \
+            --docker-password="${{ secrets.GITHUB_TOKEN }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          # TLS secret (self-signed for CI)
+          openssl req -x509 -nodes -days 7 -newkey rsa:2048 \
+            -keyout tls.key -out tls.crt \
+            -subj "/CN=${INGRESS_HOST}/O=sc-mlops" \
+            -addext "subjectAltName=DNS:${INGRESS_HOST}"
+
+          kubectl -n "${K8S_NAMESPACE}" create secret tls sc-mlops-tls \
+            --key tls.key --cert tls.crt \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          rm -f tls.key tls.crt
+
+      - name: Deploy manifests with SHA
+        run: |
+          set -euo pipefail
+          kubectl apply -f k8s/api-service.yaml
+          kubectl apply -f k8s/ingress.yaml
+          sed "s/REPLACE_WITH_SHA/${{ github.sha }}/g" k8s/api-deployment.yaml | kubectl apply -f -
+          kubectl -n "${K8S_NAMESPACE}" rollout status deployment/sc-mlops-api --timeout=180s
+
+      - name: HTTPS smoke test (Ingress TLS)
+        run: |
+          set -euo pipefail
+          kubectl -n ingress-nginx port-forward svc/ingress-nginx-controller 8443:443 >/tmp/pf.log 2>&1 &
+          PF_PID=$!
+
+          for i in {1..30}; do
+            BODY=$(curl -k -sS "https://localhost:8443/health" -H "Host: ${INGRESS_HOST}" || true)
+            echo "$BODY" | grep -q '"status":"ok"' && OK=1 && break
+            sleep 2
+          done
+
+          kill $PF_PID || true
+
+          if [ "${OK:-0}" != "1" ]; then
+            echo "HTTPS smoke test failed. port-forward logs:"
+            cat /tmp/pf.log || true
+            exit 1
+          fi
+
+      - name: Rehearse rollback (apply broken image then rollout undo)
+        run: |
+          set -euo pipefail
+          # Apply a broken image via apply (avoids mixing 'set image' with apply warning)
+          sed "s/REPLACE_WITH_SHA/does-not-exist/g" k8s/api-deployment.yaml | kubectl apply -f -
+          # Roll back in one command
+          kubectl -n "${K8S_NAMESPACE}" rollout undo deployment/sc-mlops-api
+          kubectl -n "${K8S_NAMESPACE}" rollout status deployment/sc-mlops-api --timeout=180s
