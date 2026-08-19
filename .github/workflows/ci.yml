@@ -40,6 +40,8 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+        env:
+          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY || 'ci-test-secret-key' }}
 
   # The test job never builds an image, so a broken Dockerfile target used to reach dev with
   # CI green (Card 2.4-B review). These two targets are torch-free and build in a few minutes;

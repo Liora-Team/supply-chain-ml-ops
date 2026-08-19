@@ -8,9 +8,11 @@ services:
     image: nginx:1.29-alpine
     container_name: sc-mlops-proxy
     ports:
-      - "80:80" # 443 arrives with TLS in Card 3.3
+      - "80:80"
+      - "443:443"
     volumes:
       - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/certs:/etc/nginx/certs:ro
     depends_on:
       api:
         condition: service_healthy
@@ -35,6 +37,8 @@ services:
       MLFLOW_TRACKING_URI: "${MLFLOW_TRACKING_URI:-}"
       MLFLOW_TRACKING_USERNAME: "${MLFLOW_TRACKING_USERNAME:-}"
       MLFLOW_TRACKING_PASSWORD: "${MLFLOW_TRACKING_PASSWORD:-}"
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set}"
+      RATE_LIMIT_PER_MINUTE: "${RATE_LIMIT_PER_MINUTE:-60}"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 30s

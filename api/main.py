@@ -12,9 +12,10 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.auth import enforce_rate_limit, verify_token
 from src import registry
 from src.inference import predict_classical, predict_loaded_classical
 
@@ -30,7 +31,7 @@ app = FastAPI(
 class PredictRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=(), populate_by_name=True)
 
-    text: str = Field(..., min_length=1, description="Raw review text.")
+    text: str = Field(..., min_length=1, max_length=5000, description="Raw review text.")
     label_schema: str = Field(
         "3-class", alias="schema", description="Label schema: '3-class' or '5-class'."
     )
@@ -79,7 +80,7 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.get("/models")
+@app.get("/models", dependencies=[Depends(verify_token), Depends(enforce_rate_limit)])
 def models(schema: str | None = None) -> dict:
     """List loadable classical models (optionally filtered to one schema)."""
     schemas = [schema] if schema else list(SCHEMAS)
@@ -116,7 +117,11 @@ def models(schema: str | None = None) -> dict:
     return {"models": out}
 
 
-@app.post("/predict", response_model=PredictResponse)
+@app.post(
+    "/predict",
+    response_model=PredictResponse,
+    dependencies=[Depends(verify_token), Depends(enforce_rate_limit)],
+)
 def predict(req: PredictRequest) -> PredictResponse:
     """Predict the star rating (or 3-class sentiment) of one review."""
     if req.label_schema not in SCHEMAS:

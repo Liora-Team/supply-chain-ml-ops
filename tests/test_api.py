@@ -1,9 +1,14 @@
 """Unit tests for the FastAPI inference service."""
 
+import os
+
+from conftest import auth_headers
 from fastapi.testclient import TestClient
 
 from api.main import app, default_model_id, production_model
 from src import registry
+
+os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key")
 
 client = TestClient(app)
 
@@ -19,6 +24,7 @@ def test_api_falls_back_without_tracking_uri(monkeypatch):
             "text": "Fantastic, the best I ever bought!",
             "schema": "3-class",
         },
+        headers=auth_headers(),
     )
 
     assert response.status_code == 200
@@ -79,6 +85,7 @@ def test_api_uses_registry_when_available(monkeypatch):
             "text": "Fantastic, the best I ever bought!",
             "schema": "3-class",
         },
+        headers=auth_headers(),
     )
 
     assert response.status_code == 200
@@ -113,6 +120,7 @@ def test_api_falls_back_when_registry_fails(monkeypatch):
             "text": "Fantastic, the best I ever bought!",
             "schema": "3-class",
         },
+        headers=auth_headers(),
     )
 
     assert response.status_code == 200
@@ -128,7 +136,7 @@ def test_health():
 
 
 def test_models_lists_a_default():
-    r = client.get("/models", params={"schema": "3-class"})
+    r = client.get("/models", params={"schema": "3-class"}, headers=auth_headers())
     assert r.status_code == 200
     models = r.json()["models"]
     assert models, "expected at least one loadable model"
@@ -140,7 +148,7 @@ def test_models_reports_local_joblib_source(monkeypatch):
     monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
     production_model.cache_clear()
 
-    response = client.get("/models", params={"schema": "3-class"})
+    response = client.get("/models", params={"schema": "3-class"}, headers=auth_headers())
 
     assert response.status_code == 200
     models = response.json()["models"]
@@ -159,7 +167,7 @@ def test_models_reports_registry_source(monkeypatch):
     production_model.cache_clear()
 
     try:
-        response = client.get("/models", params={"schema": "3-class"})
+        response = client.get("/models", params={"schema": "3-class"}, headers=auth_headers())
 
         assert response.status_code == 200
         models = response.json()["models"]
@@ -178,7 +186,7 @@ def test_models_reports_registry_source(monkeypatch):
 
 def test_predict_positive_review():
     payload = {"text": "Fantastic, the best I ever bought!", "schema": "3-class"}
-    r = client.post("/predict", json=payload)
+    r = client.post("/predict", json=payload, headers=auth_headers())
     assert r.status_code == 200
     body = r.json()
     assert body["label_display"] == "Positive"
@@ -186,12 +194,16 @@ def test_predict_positive_review():
 
 
 def test_predict_rejects_bad_schema():
-    r = client.post("/predict", json={"text": "hi", "schema": "7-class"})
+    r = client.post("/predict", json={"text": "hi", "schema": "7-class"}, headers=auth_headers())
     assert r.status_code == 422
 
 
 def test_predict_unknown_model_id():
-    r = client.post("/predict", json={"text": "hi", "schema": "3-class", "model_id": "nope"})
+    r = client.post(
+        "/predict",
+        json={"text": "hi", "schema": "3-class", "model_id": "nope"},
+        headers=auth_headers(),
+    )
     assert r.status_code == 404
 
 
@@ -212,7 +224,57 @@ def test_predict_accepts_registered_model_id(monkeypatch):
             "schema": "3-class",
             "model_id": registered_id,
         },
+        headers=auth_headers(),
     )
 
     assert response.status_code == 200
     assert response.json()["model_id"] == registered_id
+
+
+def test_predict_requires_auth():
+    r = client.post("/predict", json={"text": "hi", "schema": "3-class"})
+    assert r.status_code == 401
+
+
+def test_predict_rejects_bad_token():
+    r = client.post(
+        "/predict",
+        json={"text": "hi", "schema": "3-class"},
+        headers={"Authorization": "Bearer not-a-real-token"},
+    )
+    assert r.status_code == 403
+
+
+def test_predict_accepts_valid_token():
+    r = client.post(
+        "/predict",
+        json={"text": "Great product!", "schema": "3-class"},
+        headers=auth_headers(),
+    )
+    assert r.status_code == 200
+
+
+def test_predict_rejects_oversized_payload():
+    r = client.post(
+        "/predict",
+        json={"text": "a" * 6000, "schema": "3-class"},
+        headers=auth_headers(),
+    )
+    assert r.status_code == 422
+
+
+def test_health_stays_unauthenticated():
+    assert client.get("/health").status_code == 200
+
+
+def test_rate_limit_returns_429(monkeypatch):
+    monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", "3")
+    codes = []
+    for _ in range(5):
+        r = client.post(
+            "/predict",
+            json={"text": "hi", "schema": "3-class"},
+            headers=auth_headers(),
+        )
+        codes.append(r.status_code)
+    assert 429 in codes

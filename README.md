@@ -81,6 +81,47 @@ The API supports two registered models:
 - `reviews-classifier-3class`
 - `reviews-classifier-5class`
 
+## API security
+
+`/predict` and `/models` require a **JWT bearer token**; `/health` stays open (used by
+the Docker healthcheck and, later, k8s probes).
+
+### Issuing a token
+
+Tokens are minted with `api.auth.create_access_token` — there is no public token
+endpoint yet; this is a team/CI-side helper, not something end users call:
+
+```bash
+uv run python -c "from api.auth import create_access_token; print(create_access_token('my-client'))"
+```
+
+### Calling the API
+
+```bash
+TOKEN=$(uv run python -c "from api.auth import create_access_token; print(create_access_token('me'))")
+
+curl -s -X POST localhost:8000/predict \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"terrible, broke in a day","schema":"3-class"}'
+```
+
+A missing/invalid token gets `401`/`403`; an oversized `text` field (> 5000 chars)
+gets `422`.
+
+### Rate limiting
+
+`RATE_LIMIT_PER_MINUTE` (default 60) caps requests per client IP. **The limiter is
+in-memory**: it resets on every process restart and does not coordinate across
+multiple `api` replicas. A redis-backed store is required once Card 3.4 scales the
+API beyond one replica.
+
+### TLS
+
+External traffic is served over HTTPS by the nginx `proxy` service (self-signed
+cert for the course demo, mounted from `deploy/nginx/certs/`); HTTP requests on
+port 80 are redirected to 443. See [ADR 002](docs/adr/002-jwt-auth-and-self-signed-tls.md).
+
 ### Model loading
 
 When `MLFLOW_TRACKING_URI` is set, the API first tries to load the model referenced by the lowercase `production` alias:
