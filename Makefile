@@ -1,6 +1,6 @@
 # Supply Chain MLOps — common tasks. Run `make help` for the list.
 .DEFAULT_GOAL := help
-.PHONY: help setup setup-full pull push test lint fmt api app data train eda-artifacts up down build clean
+.PHONY: help setup setup-full pull push test lint fmt api app data train eda-artifacts up down build clean dag-up dag-down dag-trigger
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -53,6 +53,17 @@ down:  ## Stop the compose stack
 
 build:  ## Build the default (api) image — train/bert are profile-gated
 	docker compose build
+
+dag-up:  ## Start Airflow (UI: http://127.0.0.1:8080) — profile-gated, default stack unaffected
+	docker compose --profile airflow up -d --build airflow
+
+# `compose down` is project-wide and would take proxy/api/mlflow with it; `rm -sf` stops
+# and removes just this container, keeping the airflow_home volume (metadata + history).
+dag-down:  ## Stop + remove the Airflow service only (default stack untouched)
+	docker compose --profile airflow rm -sf airflow
+
+dag-trigger:  ## Trigger the data_pipeline DAG from the CLI (needs `make dag-up` first)
+	docker compose exec airflow uv run --no-sync airflow dags trigger data_pipeline
 
 clean:  ## Remove caches
 	rm -rf .pytest_cache .ruff_cache **/__pycache__

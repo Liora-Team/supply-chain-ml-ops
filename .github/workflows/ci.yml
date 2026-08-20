@@ -43,6 +43,15 @@ jobs:
         env:
           JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY || 'ci-test-secret-key' }}
 
+      # tests/test_dag.py importorskips airflow, which the sync above doesn't install, so
+      # without this step a broken DAG merges green (same hole build-images closed for the
+      # Dockerfile targets). Separate step so the sync above stays small and a DAG failure
+      # is legible on its own line rather than as a skip nobody reads.
+      - name: DAG parse tests (Card 3.1)
+        run: |
+          uv sync --frozen --group track --group orchestration
+          uv run pytest tests/test_dag.py
+
   # The test job never builds an image, so a broken Dockerfile target used to reach dev with
   # CI green (Card 2.4-B review). These two targets are torch-free and build in a few minutes;
   # `bert` is left out on purpose — its torch stack costs ~10 min for little extra coverage.
@@ -57,6 +66,18 @@ jobs:
 
       - name: Build training target
         run: docker build --target training -t sc-mlops-training:ci .
+
+      # Torch-free like api/training, so the bert cost argument doesn't apply here.
+      - name: Build airflow target (Card 3.1)
+        run: docker build --target airflow .
+
+      - name: Airflow service is profile-gated (default stack stays light)
+        run: |
+          if docker compose config --services | grep -qx airflow; then
+            echo "airflow leaked into the default (profile-less) stack"
+            exit 1
+          fi
+          docker compose --profile airflow config --services | grep -qx airflow
 
       # The three steps below reproduce the Linux bind-mount bug the UID override fixes.
       # They only mean something on a real Linux host: Docker Desktop and OrbStack remap
