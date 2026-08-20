@@ -179,6 +179,7 @@ localhost:80 ─ proxy (nginx)
 | `mlflow` | always | Local tracking UI for offline dev on a named volume — team truth lives on DagsHub. |
 | `training` | `--profile train` | One-shot pipeline rebuild (`training` target) over bind-mounted `data/` + `models/`. A plain `docker compose up` never retrains. |
 | `bert` | `--profile bert` | DistilBERT torch image (`bert` target); weights via `DISTILBERT_*` ([CONTRIBUTING.md §7](CONTRIBUTING.md#7-data--model-handling)). |
+| `airflow` | `--profile airflow` | Orchestrator (`airflow` target): one `airflow standalone` container running the Card 3.1/3.2 DAGs. UI on **127.0.0.1:8080** — the one deliberate, localhost-only exception to proxy-only entry ([ADR 002](docs/adr/002-airflow-orchestration.md)). |
 
 ```bash
 docker compose up -d                                  # proxy + api + mlflow
@@ -192,9 +193,19 @@ MLFLOW_TRACKING_URI=http://mlflow:5000/mlflow \
   DOCKER_UID=$(id -u) DOCKER_GID=$(id -g) docker compose --profile train up --build training
 
 docker compose --profile bert up -d --build bert      # DistilBERT service (heavy: torch)
+
+# Orchestrated data pipeline (Card 3.1). Needs DAGSHUB_TOKEN in .env for the dvc push.
+# On Linux add DOCKER_UID=$(id -u) DOCKER_GID=$(id -g), same as training above.
+make dag-up                                           # Airflow standalone, profile-gated
+open http://127.0.0.1:8080                            # UI — no login (localhost-only)
+make dag-trigger                                      # or the UI's Trigger button; add
+                                                      # {"sample": 500} there for a smoke run
+# Watch progress in the UI Grid view (per-task status + logs). Afterwards `git status`
+# shows the refreshed data/processed/*.dvc pointers — review and commit them.
+make dag-down
 ```
 
-Credentials (`MLFLOW_*`) are passed through from `.env` at runtime — never baked into images.
+Credentials (`MLFLOW_*`, `DAGSHUB_TOKEN`) are passed through from `.env` at runtime — never baked into images.
 
 ## Repository structure
 
@@ -204,8 +215,9 @@ supply-chain-ml-ops/
 ├── CONTRIBUTING.md            # collaborator rules: git flow, commits, PRs, style, tests
 ├── MILESTONES.md              # roadmap + per-phase technical tasks with owners
 ├── Makefile                   # make setup / test / lint / api / app / data / up
-├── Dockerfile                 # multi-target: api (torch-free, default) / training / bert
-├── docker-compose.yml         # proxy (nginx) + api + mlflow, plus train/bert profiles
+├── Dockerfile                 # multi-target: api (torch-free, default) / training / bert / airflow
+├── docker-compose.yml         # proxy (nginx) + api + mlflow, plus train/bert/airflow profiles
+├── dags/                      # Airflow DAGs: data_pipeline.py (Card 3.1) · model_pipeline.py (Card 3.2)
 ├── deploy/                    # nginx reverse-proxy config (deploy/nginx/nginx.conf)
 ├── pyproject.toml             # uv project — core deps + optional groups (api/app/bert/data/dev)
 ├── docs/                      # ML_CANVAS, PROJECT_MANAGEMENT, TASKS_DONE, DATA_SOURCES, adr/
