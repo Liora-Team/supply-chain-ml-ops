@@ -1,4 +1,4 @@
-# ADR 002: JWT auth and self-signed TLS for Card 3.3
+# ADR 003: JWT auth and self-signed TLS for Card 3.3
 
 **Context:**
 Card 3.3 requires authentication, input validation and rate limiting before exposing

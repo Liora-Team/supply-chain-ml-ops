@@ -120,7 +120,7 @@ API beyond one replica.
 
 External traffic is served over HTTPS by the nginx `proxy` service (self-signed
 cert for the course demo, mounted from `deploy/nginx/certs/`); HTTP requests on
-port 80 are redirected to 443. See [ADR 002](docs/adr/002-jwt-auth-and-self-signed-tls.md).
+port 80 are redirected to 443. See [ADR 003](docs/adr/003-jwt-auth-and-self-signed-tls).
 
 ### Model loading
 
