@@ -1,8 +1,8 @@
 """DagBag sanity checks for the Card 3.1 data DAG.
 
 Airflow is only in the opt-in `orchestration` group (it runs in its own container), so
-these tests skip wherever it isn't installed — including the CI `test` job. Run locally
-with `uv sync --group orchestration`.
+these tests skip wherever it isn't installed. CI runs them in a dedicated step that syncs
+that group (.github/workflows/ci.yml); run locally with `uv sync --group orchestration`.
 """
 
 import pytest
