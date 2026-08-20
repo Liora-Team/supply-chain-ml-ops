@@ -58,6 +58,8 @@ jobs:
   # No DVC pull: this checks that the targets build, not that they serve.
   build-images:
     runs-on: ubuntu-latest
+    env:
+      JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY || 'ci-test-secret-key' }}
     steps:
       - uses: actions/checkout@v4
 
