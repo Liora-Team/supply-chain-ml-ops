@@ -5,6 +5,8 @@ these tests skip wherever it isn't installed. CI runs them in a dedicated step t
 that group (.github/workflows/ci.yml); run locally with `uv sync --group orchestration`.
 """
 
+from datetime import timedelta
+
 import pytest
 
 pytest.importorskip("airflow")
@@ -35,3 +37,29 @@ def test_data_pipeline_is_manual_only_with_retries(dagbag):
     assert type(dag.timetable).__name__ == "NullTimetable"  # schedule=None → manual only
     for t in dag.tasks:
         assert t.retries == 2
+
+
+def test_model_pipeline_shape(dagbag):
+    dag = dagbag.dags.get("model_pipeline")
+
+    assert dag is not None
+    assert {t.task_id for t in dag.tasks} == {
+        "pull_data",
+        "train",
+        "evaluate",
+        "gate",
+    }
+    assert dag.get_task("train").upstream_task_ids == {"pull_data"}
+    assert dag.get_task("evaluate").upstream_task_ids == {"train"}
+    assert dag.get_task("gate").upstream_task_ids == {"evaluate"}
+
+
+def test_model_pipeline_is_manual_only_with_retries_and_alerts(dagbag):
+    dag = dagbag.dags.get("model_pipeline")
+
+    assert type(dag.timetable).__name__ == "NullTimetable"
+
+    for task in dag.tasks:
+        assert task.retries == 2
+        assert task.retry_delay == timedelta(minutes=2)
+        assert [callback.__name__ for callback in task.on_failure_callback] == ["_alert"]

@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from src.registry import REGISTERED_MODEL_NAMES
 
 logger = logging.getLogger(__name__)
+MISSING_PRODUCTION_ERROR_CODES = {
+    "RESOURCE_DOES_NOT_EXIST",
+    "INVALID_PARAMETER_VALUE",
+}
 
 
 def should_promote(
@@ -43,25 +47,39 @@ def get_run_macro_f1(client, run_id: str) -> float:
         ) from exc
 
 
-def get_production_macro_f1(
+def get_production_model_version(
     client,
     schema: str,
-) -> float | None:
-    """Return the current Production model's macro-F1, or None if none exists."""
+):
+    """Return the Production model version, or None if no alias exists."""
     import mlflow
 
     model_name = REGISTERED_MODEL_NAMES[schema]
 
     try:
-        model_version = client.get_model_version_by_alias(
+        return client.get_model_version_by_alias(
             name=model_name,
             alias="production",
         )
     except mlflow.exceptions.MlflowException as exc:
-        if exc.error_code == "RESOURCE_DOES_NOT_EXIST":
+        if exc.error_code in MISSING_PRODUCTION_ERROR_CODES:
             return None
 
         raise
+
+
+def get_production_macro_f1(
+    client,
+    schema: str,
+) -> float | None:
+    """Return the current Production model's macro-F1, or None if none exists."""
+    model_version = get_production_model_version(
+        client=client,
+        schema=schema,
+    )
+
+    if model_version is None:
+        return None
 
     return get_run_macro_f1(
         client=client,
@@ -104,12 +122,36 @@ def evaluate_and_maybe_promote(
         client=client,
         run_id=candidate_run_id,
     )
-    production_score = get_production_macro_f1(
+
+    production_version = get_production_model_version(
         client=client,
         schema=schema,
     )
 
-    if should_promote(candidate_score, production_score):
+    already_promoted = (
+        production_version is not None and production_version.run_id == candidate_run_id
+    )
+
+    if production_version is None:
+        production_score = None
+    elif already_promoted:
+        production_score = candidate_score
+    else:
+        production_score = get_run_macro_f1(
+            client=client,
+            run_id=production_version.run_id,
+        )
+
+    if already_promoted:
+        result = PromotionResult(
+            run_id=candidate_run_id,
+            candidate_macro_f1=candidate_score,
+            production_macro_f1=production_score,
+            promoted=True,
+            new_version=str(production_version.version),
+            previous_version=None,
+        )
+    elif should_promote(candidate_score, production_score):
         _, new_version, previous_version = register_and_promote(
             client=client,
             schema=schema,
@@ -133,6 +175,7 @@ def evaluate_and_maybe_promote(
             new_version=None,
             previous_version=None,
         )
+
     logger.info(
         (
             "Promotion decision: candidate_run_id=%s "

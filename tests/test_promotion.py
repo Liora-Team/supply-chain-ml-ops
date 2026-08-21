@@ -234,14 +234,14 @@ def test_first_candidate_is_promoted_when_no_production_exists(
 ) -> None:
     """The first candidate should be promoted when no Production alias exists."""
     import mlflow
-    from mlflow.protos.databricks_pb2 import RESOURCE_DOES_NOT_EXIST
+    from mlflow.protos.databricks_pb2 import INVALID_PARAMETER_VALUE
 
     client = Mock()
 
     client.get_run.return_value = SimpleNamespace(data=SimpleNamespace(metrics={"macro_f1": 0.60}))
     client.get_model_version_by_alias.side_effect = mlflow.exceptions.MlflowException(
         "Production alias does not exist",
-        error_code=RESOURCE_DOES_NOT_EXIST,
+        error_code=INVALID_PARAMETER_VALUE,
     )
 
     promote_mock = Mock(return_value=("reviews-classifier-3class", "1", None))
@@ -299,3 +299,38 @@ def test_promotion_decision_is_logged(monkeypatch, caplog) -> None:
     assert "verdict=promoted" in caplog.text
     assert "new_version=8" in caplog.text
     assert "previous_version=7" in caplog.text
+
+
+def test_candidate_already_in_production_is_idempotent(monkeypatch) -> None:
+    """A retry must not register a candidate already behind Production."""
+    client = Mock()
+
+    client.get_run.return_value = SimpleNamespace(data=SimpleNamespace(metrics={"macro_f1": 0.74}))
+    client.get_model_version_by_alias.return_value = SimpleNamespace(
+        run_id="candidate-run-123",
+        version="8",
+    )
+
+    promote_mock = Mock()
+    monkeypatch.setattr(
+        "scripts.register_model.register_and_promote",
+        promote_mock,
+    )
+
+    result = evaluate_and_maybe_promote(
+        client=client,
+        schema="3-class",
+        candidate_run_id="candidate-run-123",
+    )
+
+    assert result.promoted is True
+    assert result.candidate_macro_f1 == 0.74
+    assert result.production_macro_f1 == 0.74
+    assert result.new_version == "8"
+    assert result.previous_version is None
+
+    promote_mock.assert_not_called()
+    client.get_model_version_by_alias.assert_called_once_with(
+        name="reviews-classifier-3class",
+        alias="production",
+    )

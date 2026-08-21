@@ -11,12 +11,34 @@ import logging
 import os
 import subprocess
 import time
+from datetime import timedelta
 
 from airflow.sdk import dag, task
 
 logger = logging.getLogger(__name__)
 
+
+def _alert(context):
+    # Simplest orchestrator-native alert (no SMTP configured): loud log line + red task in UI.
+    print(f"[ALERT] task {context['task_instance'].task_id} failed after retries - see log above")
+
+
+default_args = {
+    "retries": 2,
+    "retry_delay": timedelta(minutes=2),
+    "on_failure_callback": _alert,
+}
+
+
 EXPERIMENT_NAME = "trustpilot-reviews"
+
+
+def _require_tracking_uri() -> str:
+    """Return the configured MLflow URI or fail the task clearly."""
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "").strip()
+    if not tracking_uri:
+        raise RuntimeError("MLFLOW_TRACKING_URI must be set for the model pipeline.")
+    return tracking_uri
 
 
 def _find_candidate_run(
@@ -53,6 +75,7 @@ def _find_candidate_run(
 @dag(
     schedule=None,
     catchup=False,
+    default_args=default_args,
     tags=["model", "card-3.2"],
     params={
         "schema": "3-class",
@@ -73,7 +96,10 @@ def model_pipeline():
         """Run the existing MLflow-tracked training implementation."""
         started_after_ms = int(time.time() * 1000)
 
+        tracking_uri = _require_tracking_uri()
         env = os.environ.copy()
+        env["MLFLOW_TRACKING_URI"] = tracking_uri
+        env["MLFLOW_REQUIRED"] = "1"
 
         train_subset = context["params"].get("train_subset")
 
@@ -101,9 +127,7 @@ def model_pipeline():
         schema = str(context["params"]["schema"])
         algorithm = str(context["params"]["algorithm"])
 
-        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
-        if tracking_uri:
-            mlflow.set_tracking_uri(tracking_uri)
+        mlflow.set_tracking_uri(_require_tracking_uri())
 
         client = mlflow.MlflowClient()
 
@@ -133,9 +157,7 @@ def model_pipeline():
 
         from src.promotion import evaluate_and_maybe_promote
 
-        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
-        if tracking_uri:
-            mlflow.set_tracking_uri(tracking_uri)
+        mlflow.set_tracking_uri(_require_tracking_uri())
 
         client = mlflow.MlflowClient()
         schema = str(context["params"]["schema"])

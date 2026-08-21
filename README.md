@@ -163,21 +163,32 @@ Restart the API after rollback so it reloads the version referenced by `producti
 
 ## Automated promotion gate
 
-The Card 3.2 model DAG promotes a candidate only when:
 
-candidate\_macro\_f1 > production\_macro\_f1
+`dags/model_pipeline.py` is the Card 3.2 model DAG. It promotes a candidate only when `candidate_macro_f1 > production_macro_f1`.
 
-The production score is read at runtime from the MLflow run behind the
-current lowercase `production` alias; it is not compared against a
-hard-coded baseline. Equal or worse candidates are rejected and the
-`production` alias remains unchanged.
+The production score is read at runtime from the MLflow run behind the current lowercase `production` alias; it is not compared against a hard-coded baseline. Equal or worse
+candidates are rejected, and the `production` alias remains unchanged. When no Production alias exists yet, the first valid candidate is promoted.
 
-For the required negative-path demonstration, the DAG accepts a
-`train_subset` parameter, which deliberately trains on fewer rows while
-keeping the normal test split for evaluation.
+Before starting Airflow, ensure `MLFLOW_TRACKING_URI` has a non-empty value in the Airflow service environment. `docker-compose.yml` forwards it from the shell or `.env`; the model DAG fails fast when it is missing.
 
-Manual rollback is performed by moving the `production` alias back to
-the previous registered version; see "Roll back a promotion" above.
+Start Airflow and trigger the model DAG with its default parameters:
+
+```bash
+make dag-up
+docker compose --profile airflow exec airflow \
+  airflow dags trigger model_pipeline
+```
+
+For the required negative-path demonstration, trigger it with a reduced training set:
+
+```bash
+docker compose --profile airflow exec airflow \
+  airflow dags trigger model_pipeline --conf '{"train_subset": 500}'
+```
+
+A `train_subset` run still logs its candidate to MLflow for evaluation, but it skips writes to `models/pipelines/`, so a deliberately crippled run cannot replace the local fallback artifacts. The normal test split is retained for evaluation.
+
+Manual rollback is performed by moving the `production` alias back to the previous registered version; see "Roll back a promotion" above.
 
 ## Containers (compose)
 
