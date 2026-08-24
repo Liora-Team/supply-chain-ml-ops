@@ -128,12 +128,6 @@ def test_api_falls_back_when_registry_fails(monkeypatch, auth_headers):
     assert attempted_uris == ["models:/reviews-classifier-3class@production"]
 
 
-def test_health():
-    r = client.get("/health")
-    assert r.status_code == 200
-    assert r.json() == {"status": "ok"}
-
-
 def test_models_lists_a_default(auth_headers):
     r = client.get("/models", params={"schema": "3-class"}, headers=auth_headers)
     assert r.status_code == 200

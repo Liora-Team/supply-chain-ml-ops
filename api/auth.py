@@ -33,8 +33,8 @@ def _load_env_once() -> None:
 
 
 def _secret() -> str:
-    _load_env_once()
     """Return the JWT signing secret from the environment."""
+    _load_env_once()
     secret = os.environ.get("JWT_SECRET_KEY")
 
     if not secret:
@@ -104,16 +104,6 @@ def _client_id(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def enforce_rate_limit(request: Request) -> None:
-    client_id = _client_id(request)
-    now = time.monotonic()
-    hits = _hits[client_id]
-    hits[:] = [t for t in hits if now - t < _WINDOW_S]
-    if len(hits) >= _rate_limit():
-        raise HTTPException(status_code=429, detail="Rate limit exceeded.")
-    hits.append(now)
-
-
 def _prune_idle_clients() -> None:
     """Drop buckets with no hits inside the current window (called periodically,
     not on every request, to avoid extra work per call)."""
@@ -122,6 +112,18 @@ def _prune_idle_clients() -> None:
         _hits[client_id][:] = [t for t in _hits[client_id] if now - t < _WINDOW_S]
         if not _hits[client_id]:
             del _hits[client_id]
+
+
+def enforce_rate_limit(request: Request) -> None:
+    client_id = _client_id(request)
+    now = time.monotonic()
+    hits = _hits[client_id]
+    hits[:] = [t for t in hits if now - t < _WINDOW_S]
+    if len(hits) >= _rate_limit():
+        raise HTTPException(status_code=429, detail="Rate limit exceeded.")
+    hits.append(now)
+    if len(_hits) % 100 == 0:  # amortised cleanup, avoids per-request cost
+        _prune_idle_clients()
 
 
 def reset_rate_limits() -> None:

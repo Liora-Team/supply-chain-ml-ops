@@ -1,6 +1,6 @@
 # Supply Chain MLOps — common tasks. Run `make help` for the list.
 .DEFAULT_GOAL := help
-.PHONY: help setup setup-full pull push test lint fmt api app data train eda-artifacts up down build clean dag-up dag-down dag-trigger
+.PHONY: help setup setup-full pull push test lint fmt api app data train eda-artifacts certs up down build clean dag-up dag-down dag-trigger
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
