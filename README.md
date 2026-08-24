@@ -81,6 +81,55 @@ The API supports two registered models:
 - `reviews-classifier-3class`
 - `reviews-classifier-5class`
 
+## API security
+
+`/predict` and `/models` require a **JWT bearer token**; `/health` stays open (used by
+the Docker healthcheck and, later, k8s probes).
+
+### Issuing a token
+
+Tokens are minted with `api.auth.create_access_token` — there is no public token
+endpoint yet; this is a team/CI-side helper, not something end users call:
+
+```bash
+uv run python -c "from api.auth import create_access_token; print(create_access_token('my-client'))"
+```
+
+### Calling the API
+
+```bash
+TOKEN=$(uv run python -c "from api.auth import create_access_token; print(create_access_token('me'))")
+
+curl -s -X POST localhost:8000/predict \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"terrible, broke in a day","schema":"3-class"}'
+```
+
+A missing/invalid token gets `401`/`403`; an oversized `text` field (> 5000 chars)
+gets `422`.
+
+### Rate limiting
+
+`RATE_LIMIT_PER_MINUTE` (default 60) caps requests per client IP, resolved from
+the `X-Real-IP` header set by the nginx proxy from `$remote_addr` (the actual
+TCP peer — not spoofable by the caller, unlike `X-Forwarded-For`). Falls back
+to the direct connection when the API is hit without a proxy in front, e.g.
+`make api`. **The limiter is in-memory**: it resets on every process restart and 
+does not coordinate across multiple `api` replicas. A redis-backed store is 
+required once Card 3.4 scales the API beyond one replica.
+
+### TLS
+
+Generate the self-signed dev cert once (or let `make up` do it automatically):
+\`\`\`bash
+make certs
+\`\`\`
+
+External traffic is served over HTTPS by the nginx `proxy` service (self-signed
+cert for the course demo, mounted from `deploy/nginx/certs/`); HTTP requests on
+port 80 are redirected to 443. See [ADR 003](docs/adr/003-jwt-auth-and-self-signed-tls.md).
+
 ### Model loading
 
 When `MLFLOW_TRACKING_URI` is set, the API first tries to load the model referenced by the lowercase `production` alias:
@@ -163,13 +212,13 @@ Restart the API after rollback so it reloads the version referenced by `producti
 ## Containers (compose)
 
 One container per responsibility; the nginx **proxy** is the only published entry point
-(port 80 — TLS on 443 lands with Card 3.3). Internal services talk over the compose
-network by service name and are never published directly.
+(port 80 redirects to 443, where TLS is terminated — Card 3.3). Internal services
+talk over the compose network by service name and are never published directly.
 
 ```
-                 ┌────────► api:8000     (classical inference — /)
-localhost:80 ─ proxy (nginx)
-                 └────────► mlflow:5000  (local tracking UI — /mlflow/)
+                       ┌────────► api:8000     (classical inference — /)
+localhost:80 → :443 ─ proxy (nginx, TLS)
+                       └────────► mlflow:5000  (local tracking UI — /mlflow/)
 ```
 
 | Service | Runs | Notes |
