@@ -23,5 +23,8 @@ self-signed vs a real certificate.
 - The in-memory rate limiter does **not** survive a restart and does **not**
   coordinate across multiple API replicas — must be swapped for redis before
   Card 3.4 scales `api` beyond 1 replica.
+- The rate limiter keys on `X-Real-IP` (nginx's `$remote_addr`), not
+  `X-Forwarded-For` — the latter's first hop is client-suppliable and would let 
+  a caller spoof a fresh bucket on every request.
 - Browsers/clients hitting the compose stack directly will see a certificate
   warning until the k8s ingress brings a real cert; acceptable for the course demo.

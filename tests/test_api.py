@@ -260,10 +260,10 @@ def test_health_stays_unauthenticated():
     assert client.get("/health").status_code == 200
 
 
-def test_rate_limit_keys_on_forwarded_for(monkeypatch, auth_headers):
+def test_rate_limit_keys_on_real_ip(monkeypatch, auth_headers):
     monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", "2")
-    headers_a = {**auth_headers, "X-Forwarded-For": "10.0.0.1"}
-    headers_b = {**auth_headers, "X-Forwarded-For": "10.0.0.2"}
+    headers_a = {**auth_headers, "X-Real-IP": "10.0.0.1"}
+    headers_b = {**auth_headers, "X-Real-IP": "10.0.0.2"}
 
     # Exhaust client A's bucket (2 allowed, 3rd blocked).
     codes_a = [
@@ -280,7 +280,7 @@ def test_rate_limit_keys_on_forwarded_for(monkeypatch, auth_headers):
     assert r_b.status_code == 200
 
 
-def test_rate_limit_falls_back_to_client_host_without_forwarded_for(monkeypatch, auth_headers):
+def test_rate_limit_falls_back_to_client_host_without_real_ip(monkeypatch, auth_headers):
     monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", "2")
     codes = [
         client.post(
@@ -302,3 +302,25 @@ def test_rate_limit_returns_429(monkeypatch, auth_headers):
         )
         codes.append(r.status_code)
     assert 429 in codes
+
+
+def test_rate_limit_ignores_spoofed_forwarded_for(monkeypatch, auth_headers):
+    """X-Forwarded-For is attacker-suppliable and must not affect bucketing —
+    only X-Real-IP (set by nginx from $remote_addr) is trusted."""
+    monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", "2")
+    headers = {**auth_headers, "X-Forwarded-For": "1.1.1.1"}
+
+    codes_first_identity = [
+        client.post(
+            "/predict", json={"text": "hi", "schema": "3-class"}, headers=headers
+        ).status_code
+        for _ in range(2)
+    ]
+    assert codes_first_identity == [200, 200]
+
+    # Same TestClient connection, only X-Forwarded-For rotated — should hit the
+    # same bucket (no X-Real-IP present, falls back to request.client.host,
+    # which is identical for both calls) and get blocked.
+    headers_spoofed = {**auth_headers, "X-Forwarded-For": "2.2.2.2"}
+    r = client.post("/predict", json={"text": "hi", "schema": "3-class"}, headers=headers_spoofed)
+    assert r.status_code == 429

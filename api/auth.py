@@ -95,12 +95,14 @@ def _rate_limit() -> int:
 
 
 def _client_id(request: Request) -> str:
-    """Resolve the caller's IP, preferring the first X-Forwarded-For hop
-    set by the nginx proxy. Falls back to the direct connection's host
-    when called without a proxy in front (e.g. `make api` on :8000)."""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    """Resolve the caller's IP from X-Real-IP, set by the nginx proxy from
+    $remote_addr (the actual TCP peer, not client-suppliable like the first
+    X-Forwarded-For hop). Falls back to the direct connection's host when
+    called without a proxy in front (e.g. `make api` on :8000)."""
+    real_ip = request.headers.get("x-real-ip")
+
+    if real_ip:
+        return real_ip.strip()
     return request.client.host if request.client else "unknown"
 
 

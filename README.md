@@ -112,13 +112,12 @@ gets `422`.
 ### Rate limiting
 
 `RATE_LIMIT_PER_MINUTE` (default 60) caps requests per client IP, resolved from
-the `X-Forwarded-For` header set by the nginx proxy (falls back to the direct
-connection when the API is hit without a proxy in front, e.g. `make api`).
-This trusts the first hop only, which is safe because nginx is the sole public
-entry point — internal services are never published directly. **The limiter is
-in-memory**: it resets on every process restart and does not coordinate across
-multiple `api` replicas. A redis-backed store is required once Card 3.4 scales the
-API beyond one replica.
+the `X-Real-IP` header set by the nginx proxy from `$remote_addr` (the actual
+TCP peer — not spoofable by the caller, unlike `X-Forwarded-For`). Falls back
+to the direct connection when the API is hit without a proxy in front, e.g.
+`make api`. **The limiter is in-memory**: it resets on every process restart and 
+does not coordinate across multiple `api` replicas. A redis-backed store is 
+required once Card 3.4 scales the API beyond one replica.
 
 ### TLS
 
