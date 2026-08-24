@@ -111,16 +111,25 @@ gets `422`.
 
 ### Rate limiting
 
-`RATE_LIMIT_PER_MINUTE` (default 60) caps requests per client IP. **The limiter is
+`RATE_LIMIT_PER_MINUTE` (default 60) caps requests per client IP, resolved from
+the `X-Forwarded-For` header set by the nginx proxy (falls back to the direct
+connection when the API is hit without a proxy in front, e.g. `make api`).
+This trusts the first hop only, which is safe because nginx is the sole public
+entry point — internal services are never published directly. **The limiter is
 in-memory**: it resets on every process restart and does not coordinate across
 multiple `api` replicas. A redis-backed store is required once Card 3.4 scales the
 API beyond one replica.
 
 ### TLS
 
+Generate the self-signed dev cert once (or let `make up` do it automatically):
+\`\`\`bash
+make certs
+\`\`\`
+
 External traffic is served over HTTPS by the nginx `proxy` service (self-signed
 cert for the course demo, mounted from `deploy/nginx/certs/`); HTTP requests on
-port 80 are redirected to 443. See [ADR 003](docs/adr/003-jwt-auth-and-self-signed-tls).
+port 80 are redirected to 443. See [ADR 003](docs/adr/003-jwt-auth-and-self-signed-tls.md).
 
 ### Model loading
 
@@ -204,13 +213,13 @@ Restart the API after rollback so it reloads the version referenced by `producti
 ## Containers (compose)
 
 One container per responsibility; the nginx **proxy** is the only published entry point
-(port 80 — TLS on 443 lands with Card 3.3). Internal services talk over the compose
-network by service name and are never published directly.
+(port 80 redirects to 443, where TLS is terminated — Card 3.3). Internal services
+talk over the compose network by service name and are never published directly.
 
 ```
-                 ┌────────► api:8000     (classical inference — /)
-localhost:80 ─ proxy (nginx)
-                 └────────► mlflow:5000  (local tracking UI — /mlflow/)
+                       ┌────────► api:8000     (classical inference — /)
+localhost:80 → :443 ─ proxy (nginx, TLS)
+                       └────────► mlflow:5000  (local tracking UI — /mlflow/)
 ```
 
 | Service | Runs | Notes |

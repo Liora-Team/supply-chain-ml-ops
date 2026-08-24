@@ -105,7 +105,9 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
-extend-ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"api/*.py" = ["B008"]
 
 [tool.black]
 line-length = 100

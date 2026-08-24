@@ -7,13 +7,9 @@ import time
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
-from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-
-load_dotenv()
-
 
 ALGORITHM = "HS256"
 DEFAULT_EXPIRE_MINUTES = 60
@@ -24,7 +20,20 @@ _hits: dict[str, list[float]] = defaultdict(list)
 security = HTTPBearer(auto_error=False)
 
 
+def _load_env_once() -> None:
+    """Lazily load .env for host runs (`make api`); no-op inside containers
+    where .env is excluded via .dockerignore. Mirrors the guarded-import
+    pattern in scripts/build_pipelines.py."""
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except ImportError:
+        pass
+
+
 def _secret() -> str:
+    _load_env_once()
     """Return the JWT signing secret from the environment."""
     secret = os.environ.get("JWT_SECRET_KEY")
 
@@ -85,14 +94,34 @@ def _rate_limit() -> int:
     return int(os.environ.get("RATE_LIMIT_PER_MINUTE", "60"))
 
 
+def _client_id(request: Request) -> str:
+    """Resolve the caller's IP, preferring the first X-Forwarded-For hop
+    set by the nginx proxy. Falls back to the direct connection's host
+    when called without a proxy in front (e.g. `make api` on :8000)."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 def enforce_rate_limit(request: Request) -> None:
-    client_id = request.client.host if request.client else "unknown"
+    client_id = _client_id(request)
     now = time.monotonic()
     hits = _hits[client_id]
     hits[:] = [t for t in hits if now - t < _WINDOW_S]
     if len(hits) >= _rate_limit():
         raise HTTPException(status_code=429, detail="Rate limit exceeded.")
     hits.append(now)
+
+
+def _prune_idle_clients() -> None:
+    """Drop buckets with no hits inside the current window (called periodically,
+    not on every request, to avoid extra work per call)."""
+    now = time.monotonic()
+    for client_id in list(_hits):
+        _hits[client_id][:] = [t for t in _hits[client_id] if now - t < _WINDOW_S]
+        if not _hits[client_id]:
+            del _hits[client_id]
 
 
 def reset_rate_limits() -> None:

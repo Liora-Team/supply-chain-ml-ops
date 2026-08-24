@@ -5,6 +5,7 @@ import pytest
 from api.auth import create_access_token, reset_rate_limits
 
 
+@pytest.fixture
 def auth_headers() -> dict:
     token = create_access_token("tester")
     return {"Authorization": f"Bearer {token}"}

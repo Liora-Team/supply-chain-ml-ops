@@ -45,7 +45,13 @@ train:  ## Rebuild the served model pipelines (run `make data` first)
 eda-artifacts:  ## Rebuild the committed EDA artefacts (needs the uncommitted featurised parquet)
 	uv run --group data python scripts/build_eda_artifacts.py
 
-up:  ## Build + start the compose stack (proxy + api + mlflow)
+certs:  ## Generate the self-signed TLS cert for the nginx proxy (Card 3.3)
+	mkdir -p deploy/nginx/certs
+	openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+	  -keyout deploy/nginx/certs/privkey.pem \
+	  -out deploy/nginx/certs/fullchain.pem -subj "/CN=localhost"
+
+up: certs  ## Build + start the compose stack (proxy + api + mlflow)
 	docker compose up --build -d
 
 down:  ## Stop the compose stack

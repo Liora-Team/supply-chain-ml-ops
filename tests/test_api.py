@@ -2,7 +2,6 @@
 
 import os
 
-from conftest import auth_headers
 from fastapi.testclient import TestClient
 
 from api.main import app, default_model_id, production_model
@@ -13,7 +12,7 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key")
 client = TestClient(app)
 
 
-def test_api_falls_back_without_tracking_uri(monkeypatch):
+def test_api_falls_back_without_tracking_uri(monkeypatch, auth_headers):
     """Without MLflow configuration, /predict serves the local joblib model."""
     monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
     production_model.cache_clear()
@@ -24,7 +23,7 @@ def test_api_falls_back_without_tracking_uri(monkeypatch):
             "text": "Fantastic, the best I ever bought!",
             "schema": "3-class",
         },
-        headers=auth_headers(),
+        headers=auth_headers,
     )
 
     assert response.status_code == 200
@@ -58,7 +57,7 @@ def test_local_fallback_respects_configured_default(monkeypatch):
         production_model.cache_clear()
 
 
-def test_api_uses_registry_when_available(monkeypatch):
+def test_api_uses_registry_when_available(monkeypatch, auth_headers):
     """When MLflow succeeds, /predict serves the production-alias pipeline."""
     import sys
     from types import SimpleNamespace
@@ -85,7 +84,7 @@ def test_api_uses_registry_when_available(monkeypatch):
             "text": "Fantastic, the best I ever bought!",
             "schema": "3-class",
         },
-        headers=auth_headers(),
+        headers=auth_headers,
     )
 
     assert response.status_code == 200
@@ -94,7 +93,7 @@ def test_api_uses_registry_when_available(monkeypatch):
     assert loaded_uris == ["models:/reviews-classifier-3class@production"]
 
 
-def test_api_falls_back_when_registry_fails(monkeypatch):
+def test_api_falls_back_when_registry_fails(monkeypatch, auth_headers):
     """When MLflow loading fails, /predict cleanly uses local joblib."""
     import sys
     from types import SimpleNamespace
@@ -120,7 +119,7 @@ def test_api_falls_back_when_registry_fails(monkeypatch):
             "text": "Fantastic, the best I ever bought!",
             "schema": "3-class",
         },
-        headers=auth_headers(),
+        headers=auth_headers,
     )
 
     assert response.status_code == 200
@@ -135,20 +134,20 @@ def test_health():
     assert r.json() == {"status": "ok"}
 
 
-def test_models_lists_a_default():
-    r = client.get("/models", params={"schema": "3-class"}, headers=auth_headers())
+def test_models_lists_a_default(auth_headers):
+    r = client.get("/models", params={"schema": "3-class"}, headers=auth_headers)
     assert r.status_code == 200
     models = r.json()["models"]
     assert models, "expected at least one loadable model"
     assert sum(m["default"] for m in models) == 1
 
 
-def test_models_reports_local_joblib_source(monkeypatch):
+def test_models_reports_local_joblib_source(monkeypatch, auth_headers):
     """Without MLflow configuration, /models reports the local serving path."""
     monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
     production_model.cache_clear()
 
-    response = client.get("/models", params={"schema": "3-class"}, headers=auth_headers())
+    response = client.get("/models", params={"schema": "3-class"}, headers=auth_headers)
 
     assert response.status_code == 200
     models = response.json()["models"]
@@ -156,7 +155,7 @@ def test_models_reports_local_joblib_source(monkeypatch):
     assert all(model["source"] == "local_joblib" for model in models)
 
 
-def test_models_reports_registry_source(monkeypatch):
+def test_models_reports_registry_source(monkeypatch, auth_headers):
     """When registry loading succeeds, /models reports the registry path."""
     local_pipeline, _ = registry._load_local_pipeline("3-class")
     monkeypatch.setattr(
@@ -167,7 +166,7 @@ def test_models_reports_registry_source(monkeypatch):
     production_model.cache_clear()
 
     try:
-        response = client.get("/models", params={"schema": "3-class"}, headers=auth_headers())
+        response = client.get("/models", params={"schema": "3-class"}, headers=auth_headers)
 
         assert response.status_code == 200
         models = response.json()["models"]
@@ -184,30 +183,30 @@ def test_models_reports_registry_source(monkeypatch):
         production_model.cache_clear()
 
 
-def test_predict_positive_review():
+def test_predict_positive_review(auth_headers):
     payload = {"text": "Fantastic, the best I ever bought!", "schema": "3-class"}
-    r = client.post("/predict", json=payload, headers=auth_headers())
+    r = client.post("/predict", json=payload, headers=auth_headers)
     assert r.status_code == 200
     body = r.json()
     assert body["label_display"] == "Positive"
     assert abs(sum(body["probs"].values()) - 1.0) < 1e-6
 
 
-def test_predict_rejects_bad_schema():
-    r = client.post("/predict", json={"text": "hi", "schema": "7-class"}, headers=auth_headers())
+def test_predict_rejects_bad_schema(auth_headers):
+    r = client.post("/predict", json={"text": "hi", "schema": "7-class"}, headers=auth_headers)
     assert r.status_code == 422
 
 
-def test_predict_unknown_model_id():
+def test_predict_unknown_model_id(auth_headers):
     r = client.post(
         "/predict",
         json={"text": "hi", "schema": "3-class", "model_id": "nope"},
-        headers=auth_headers(),
+        headers=auth_headers,
     )
     assert r.status_code == 404
 
 
-def test_predict_accepts_registered_model_id(monkeypatch):
+def test_predict_accepts_registered_model_id(monkeypatch, auth_headers):
     """A registered-model ID returned by the API can be sent back explicitly."""
     registered_id = registry.REGISTERED_MODEL_NAMES["3-class"]
     local_pipeline, _ = registry._load_local_pipeline("3-class")
@@ -224,7 +223,7 @@ def test_predict_accepts_registered_model_id(monkeypatch):
             "schema": "3-class",
             "model_id": registered_id,
         },
-        headers=auth_headers(),
+        headers=auth_headers,
     )
 
     assert response.status_code == 200
@@ -245,20 +244,20 @@ def test_predict_rejects_bad_token():
     assert r.status_code == 403
 
 
-def test_predict_accepts_valid_token():
+def test_predict_accepts_valid_token(auth_headers):
     r = client.post(
         "/predict",
         json={"text": "Great product!", "schema": "3-class"},
-        headers=auth_headers(),
+        headers=auth_headers,
     )
     assert r.status_code == 200
 
 
-def test_predict_rejects_oversized_payload():
+def test_predict_rejects_oversized_payload(auth_headers):
     r = client.post(
         "/predict",
         json={"text": "a" * 6000, "schema": "3-class"},
-        headers=auth_headers(),
+        headers=auth_headers,
     )
     assert r.status_code == 422
 
@@ -267,14 +266,47 @@ def test_health_stays_unauthenticated():
     assert client.get("/health").status_code == 200
 
 
-def test_rate_limit_returns_429(monkeypatch):
+def test_rate_limit_keys_on_forwarded_for(monkeypatch, auth_headers):
+    monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", "2")
+    headers_a = {**auth_headers, "X-Forwarded-For": "10.0.0.1"}
+    headers_b = {**auth_headers, "X-Forwarded-For": "10.0.0.2"}
+
+    # Exhaust client A's bucket (2 allowed, 3rd blocked).
+    codes_a = [
+        client.post(
+            "/predict", json={"text": "hi", "schema": "3-class"}, headers=headers_a
+        ).status_code
+        for _ in range(3)
+    ]
+    assert codes_a == [200, 200, 429]
+
+    # Client B has never made a request — its bucket must still be fresh,
+    # proving A and B are not sharing state.
+    r_b = client.post(
+        "/predict", json={"text": "hi", "schema": "3-class"}, headers=headers_b
+    )
+    assert r_b.status_code == 200
+
+
+def test_rate_limit_falls_back_to_client_host_without_forwarded_for(monkeypatch, auth_headers):
+    monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", "2")
+    codes = [
+        client.post(
+            "/predict", json={"text": "hi", "schema": "3-class"}, headers=auth_headers
+        ).status_code
+        for _ in range(3)
+    ]
+    assert codes == [200, 200, 429]
+
+
+def test_rate_limit_returns_429(monkeypatch, auth_headers):
     monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", "3")
     codes = []
     for _ in range(5):
         r = client.post(
             "/predict",
             json={"text": "hi", "schema": "3-class"},
-            headers=auth_headers(),
+            headers=auth_headers,
         )
         codes.append(r.status_code)
     assert 429 in codes
