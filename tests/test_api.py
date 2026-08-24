@@ -282,9 +282,7 @@ def test_rate_limit_keys_on_forwarded_for(monkeypatch, auth_headers):
 
     # Client B has never made a request — its bucket must still be fresh,
     # proving A and B are not sharing state.
-    r_b = client.post(
-        "/predict", json={"text": "hi", "schema": "3-class"}, headers=headers_b
-    )
+    r_b = client.post("/predict", json={"text": "hi", "schema": "3-class"}, headers=headers_b)
     assert r_b.status_code == 200
 
 
