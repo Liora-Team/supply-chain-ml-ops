@@ -23,6 +23,7 @@ dependencies = [
 # Inference API service (classical models only — no torch).
 api = [
     "fastapi>=0.115",
+    "prometheus-fastapi-instrumentator>=8.1.0",
     "python-dotenv>=1.2.2",
     "python-jose[cryptography]>=3.5.0",
     "uvicorn[standard]>=0.30",
