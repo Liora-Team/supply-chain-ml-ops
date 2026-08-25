@@ -43,7 +43,7 @@ make setup                       # = uv sync
 make pull                        # = uv run dvc pull
 
 # 3. Run the test suite (preprocessing + inference + API).
-make test                        # 15 passing (first run downloads NLTK data once — needs network)
+make test                        # 39 passing (first run downloads NLTK data once — needs network)
 
 # 4. Serve the inference API.
 make api                         # → http://localhost:8000/docs
@@ -129,6 +129,14 @@ make certs
 External traffic is served over HTTPS by the nginx `proxy` service (self-signed
 cert for the course demo, mounted from `deploy/nginx/certs/`); HTTP requests on
 port 80 are redirected to 443. See [ADR 003](docs/adr/003-jwt-auth-and-self-signed-tls.md).
+
+### Metrics
+
+`/metrics` serves Prometheus metrics (request counts, latency histograms — Card 4.3,
+scraped by Card 4.2's Prometheus at `api:8000`). It is **unauthenticated by design** but
+**not publicly reachable**: the nginx proxy answers `403` for `/metrics`, so it is only
+available inside the compose/k8s network. Locally (`make api`, no proxy) it is open at
+`localhost:8000/metrics`.
 
 ### Model loading
 
@@ -303,6 +311,7 @@ One canonical home per topic — if you're about to write the same thing twice, 
 | [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) | Dataset detail + options for new data over time (drift/retraining) |
 | [docs/TASKS_DONE.md](docs/TASKS_DONE.md) | Completed Phase-1 tasks, issue-ready for the board |
 | [docs/TODO.md](docs/TODO.md) | **Milestones 2–4** cards — per-member checklists, branch names, acceptance criteria (source for the Project board) |
+| [docs/MAINTENANCE.md](docs/MAINTENANCE.md) | **Operator runbooks**: update / rollback / retrain, data-privacy note |
 | [docs/adr/](docs/adr/) | **Architecture Decision Records** (e.g. ADR 001 — MLflow 3.14 local storage fallback) |
 
 **New to the repo? Read in this order:**
