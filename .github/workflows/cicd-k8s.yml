@@ -30,6 +30,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Pull classical pipeline weights (DVC)
+        env:
+          DAGSHUB_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
+        run: make pull-ci
+
       - name: Build and push API image (no latest)
         uses: docker/build-push-action@v6
         with:
@@ -38,7 +43,7 @@ jobs:
           push: true
           tags: ${{ env.IMAGE }}:${{ github.sha }}
           labels: |
-            org.opencontainers.image.source=${{ github.repository }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
 
   k8s_rehearsal_kind:
@@ -71,8 +76,9 @@ jobs:
           kubectl apply -f k8s/namespace.yaml
 
           # Runtime secrets (MLFLOW_* empty so the API doesn't depend on external services in CI)
-          kubectl -n "${K8S_NAMESPACE}" create secret generic sc-mlops-secrets \
-            --from-literal=API_KEY=dummy-ci \
+           kubectl -n "${K8S_NAMESPACE}" create secret generic sc-mlops-secrets \
+            --from-literal=JWT_SECRET_KEY="dummy-ci-secret" \
+            --from-literal=API_KEY="dummy-ci" \
             --from-literal=MLFLOW_TRACKING_URI="" \
             --from-literal=MLFLOW_TRACKING_USERNAME="" \
             --from-literal=MLFLOW_TRACKING_PASSWORD="" \
@@ -117,19 +123,42 @@ jobs:
             sleep 2
           done
 
-          kill $PF_PID || true
-
           if [ "${OK:-0}" != "1" ]; then
-            echo "HTTPS smoke test failed. port-forward logs:"
+            echo "HTTPS health check failed. port-forward logs:"
             cat /tmp/pf.log || true
+            kill $PF_PID || true
             exit 1
           fi
+
+          echo "Health check passed. Testing /predict endpoint..."
+          PREDICT_BODY=$(curl -k -sS -X POST "https://localhost:8443/predict" \
+            -H "Host: ${INGRESS_HOST}" \
+            -H 'Content-Type: application/json' \
+            -d '{"text":"terrible, broke in a day","schema":"3-class"}' || true)
+          
+          echo "$PREDICT_BODY" | grep -q '"label_display"' || {
+            echo "Predict check failed. Response: $PREDICT_BODY"
+            kill $PF_PID || true
+            exit 1
+          }
+          
+          echo "Predict check passed."
+          kill $PF_PID || true
 
       - name: Rehearse rollback (apply broken image then rollout undo)
         run: |
           set -euo pipefail
-          # Apply a broken image via apply (avoids mixing 'set image' with apply warning)
+          # Apply a broken image
           sed "s/REPLACE_WITH_SHA/does-not-exist/g" k8s/api-deployment.yaml | kubectl apply -f -
-          # Roll back in one command
+          
+          # Wait for deployment controller to observe the bad revision
+          kubectl -n "${K8S_NAMESPACE}" rollout status deployment/sc-mlops-api --timeout=60s || true
+          
+          # Roll back
           kubectl -n "${K8S_NAMESPACE}" rollout undo deployment/sc-mlops-api
           kubectl -n "${K8S_NAMESPACE}" rollout status deployment/sc-mlops-api --timeout=180s
+          
+          # Assert the image is back to the correct SHA
+          kubectl -n "${K8S_NAMESPACE}" get deploy sc-mlops-api -o jsonpath='{.spec.template.spec.containers[0].image}' | grep -q "${{ github.sha }}"
+
+          

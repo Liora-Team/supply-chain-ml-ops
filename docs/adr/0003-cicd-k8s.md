@@ -6,7 +6,7 @@ Card 3.4 requires: SHA-tagged images, k8s deployment with >=2 replicas, probes o
 ## Decision
 - **Image registry**: GHCR (free, integrated with GitHub).
 - **Deployment target (demo & CI)**: Local cluster (`kind`).
-- **Deploy trigger**: Automatic on push to `dev`.
+- **Deploy trigger**: Automatic on push to `dev`. The full `kind` rehearsal runs on merges to `dev`. This is intentional to limit CI runtime and avoid publishing images to GHCR on every PR, while PRs remain gated by the standard validation workflow (`ci.yml`).
 - **Rollback**: `kubectl rollout undo deployment/sc-mlops-api`.
 - **Ingress & TLS**: `ingress-nginx` controller with Kubernetes TLS Secret (self-signed for local demo).
 

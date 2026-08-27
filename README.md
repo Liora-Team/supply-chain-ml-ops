@@ -224,9 +224,9 @@ This repository supports scalable API serving on Kubernetes (Card 3.4 / #19):
 ### 1. CI/CD Pipeline (`cicd-k8s.yml`)
 
 On pushes to `dev`, GitHub Actions (`.github/workflows/cicd-k8s.yml`):
-1. Builds the `api` Docker image target.
+1. Builds the `api` Docker image target (after pulling weights via `DVC`).
 2. Publishes the image to GHCR as `ghcr.io/liora-team/supply-chain-ml-ops-api:<GIT_SHA>`.
-3. Provisions an ephemeral `kind` cluster to apply `k8s/` manifests, verify HTTPS routing via `ingress-nginx`, and rehearse a **one-step rollback** (`kubectl rollout undo`).
+3. Provisions an ephemeral `kind` cluster to apply `k8s/` manifests, verify HTTPS routing via `ingress-nginx` (testing both `/health` and `/predict`), and rehearse an asserted **one-step rollback** (`kubectl rollout undo`).
 
 ### 2. Local Kubernetes runbook (`kind` / Docker Desktop)
 
@@ -250,10 +250,16 @@ kubectl apply -f k8s/namespace.yaml
 # Copy secret template and edit credentials
 cp k8s/secrets.example.yaml k8s/secrets.yaml
 
-# Edit k8s/secrets.yaml with real credentials, then:
+# Create GHCR pull secret (Required for private packages)
+kubectl -n sc-mlops create secret docker-registry ghcr-pull-secret \
+  --docker-server=ghcr.io \
+  --docker-username=<GITHUB_USERNAME> \
+  --docker-password=<GHCR_PAT>
+
+# Apply the main secrets file
 kubectl apply -f k8s/secrets.yaml
+# k8s/secrets.yaml must remain git-ignored.
 ```
-`k8s/secrets.yaml` must remain git-ignored.
 
 #### Step 3: Create TLS secret (local testing)
 Generate a short-lived self-signed certificate:
@@ -283,9 +289,10 @@ In one terminal:
 kubectl -n ingress-nginx port-forward svc/ingress-nginx-controller 8443:443
 ```
 
-In a second terminal:
+In a second terminal:(Note: you must obtain a valid JWT token first as per API security rules, unless testing internally bypasses it in CI):
 ```bash
 curl -k -sS https://localhost:8443/health -H "Host: api.sc-mlops.local"
+curl -k -sS -X POST https://localhost:8443/predict -H "Host: api.sc-mlops.local" -H "Content-Type: application/json" -d '{"text":"terrible","schema":"3-class"}'
 ```
 
 Rehearse rollback:
@@ -309,10 +316,15 @@ kubectl -n sc-mlops create secret tls sc-mlops-tls --key tls.key --cert tls.crt 
 Remove-Item -Force tls.key, tls.crt
 ```
 
-#### Copy the secrets template
+#### Copy the secrets template and create GHCR secret
 ```powershell
 Copy-Item k8s/secrets.example.yaml k8s/secrets.yaml
 kubectl apply -f k8s/secrets.yaml
+
+$ghcrUser = Read-Host "GitHub Username"
+$ghcrToken = Read-Host "GHCR PAT"
+kubectl -n sc-mlops create secret docker-registry ghcr-pull-secret --docker-server=ghcr.io --docker-username=$ghcrUser --docker-password=$ghcrToken
+Remove-Variable ghcrToken
 ```
 
 #### Apply a deployment using a selected SHA/tag
@@ -324,6 +336,7 @@ $tag = "<GIT_SHA_OR_TAG>"
 #### Verify HTTPS
 ```powershell
 curl.exe -k -sS https://localhost:8443/health -H "Host: api.sc-mlops.local"
+curl.exe -k -sS -X POST https://localhost:8443/predict -H "Host: api.sc-mlops.local" -H "Content-Type: application/json" -d "{\`"text\`":\`"terrible\`",\`"schema\`":\`"3-class\`"}"
 ```
 
 ---
