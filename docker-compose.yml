@@ -1,16 +1,18 @@
 # One container per responsibility (Card 2.4-B). Services address each other by
 # service name over the compose network — never localhost.
 # The nginx proxy is the single public entry point: api and mlflow are internal-only.
-# Profiles keep heavy paths opt-in: `--profile train` / `--profile bert`.
+# Profiles keep heavy paths opt-in: `--profile train` / `--profile bert` / `--profile airflow`.
 services:
   # Single public entry: / -> api, /mlflow/ -> mlflow. Home for TLS from Card 3.3.
   proxy:
     image: nginx:1.29-alpine
     container_name: sc-mlops-proxy
     ports:
-      - "80:80" # 443 arrives with TLS in Card 3.3
+      - "80:80"
+      - "443:443"
     volumes:
       - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/certs:/etc/nginx/certs:ro
     depends_on:
       api:
         condition: service_healthy
@@ -35,6 +37,8 @@ services:
       MLFLOW_TRACKING_URI: "${MLFLOW_TRACKING_URI:-}"
       MLFLOW_TRACKING_USERNAME: "${MLFLOW_TRACKING_USERNAME:-}"
       MLFLOW_TRACKING_PASSWORD: "${MLFLOW_TRACKING_PASSWORD:-}"
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set}"
+      RATE_LIMIT_PER_MINUTE: "${RATE_LIMIT_PER_MINUTE:-60}"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 30s
@@ -120,6 +124,8 @@ services:
       MLFLOW_TRACKING_URI: "${MLFLOW_TRACKING_URI:-}"
       MLFLOW_TRACKING_USERNAME: "${MLFLOW_TRACKING_USERNAME:-}"
       MLFLOW_TRACKING_PASSWORD: "${MLFLOW_TRACKING_PASSWORD:-}"
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set}"
+      RATE_LIMIT_PER_MINUTE: "${RATE_LIMIT_PER_MINUTE:-60}"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 30s
@@ -128,5 +134,41 @@ services:
       start_period: 25s
     restart: unless-stopped
 
+  # Orchestrator (Card 3.1) — `docker compose --profile airflow up` / `make dag-up`.
+  # One slim container: `airflow standalone` = scheduler + dag-processor + UI in a single
+  # process, SQLite metadata on a named volume. The UI publishes on 127.0.0.1 only — the
+  # one deliberate exception to the proxy-single-entry rule (ADR 002: nginx cannot depend
+  # on a profile-gated upstream). Linux: run with DOCKER_UID/DOCKER_GID like `training`.
+  airflow:
+    profiles: ["airflow"]
+    build:
+      context: .
+      target: airflow
+    image: supply-chain-mlops-airflow:latest
+    container_name: sc-mlops-airflow
+    ports:
+      - "127.0.0.1:8080:8080" # localhost-only, never exposed beyond the dev machine
+    user: "${DOCKER_UID:-10001}:${DOCKER_GID:-10001}"
+    environment:
+      HOME: /tmp # same overridden-UID workaround as `training`
+      AIRFLOW_HOME: /opt/airflow
+      AIRFLOW__CORE__DAGS_FOLDER: /app/dags
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      # Login-free UI — acceptable only because the port is bound to 127.0.0.1.
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "True"
+      # The DagsHub token doubles as S3 key and secret; the DVC s3 remote has no inline
+      # creds, so boto3's env chain picks these up (CONTRIBUTING.md §7). Never baked in.
+      AWS_ACCESS_KEY_ID: "${DAGSHUB_TOKEN:-}"
+      AWS_SECRET_ACCESS_KEY: "${DAGSHUB_TOKEN:-}"
+      DVC_SITE_CACHE_DIR: /tmp/dvc-site-cache
+    volumes:
+      - airflow_home:/opt/airflow # SQLite metadata + logs survive restarts
+      - ./dags:/app/dags # edit DAGs without rebuilding
+      - ./data:/app/data # DAG outputs + refreshed .dvc pointers land on the host
+      - ./.dvc:/app/.dvc # shared DVC config + cache: in-container hashes valid on host
+      - ./.git:/app/.git:ro # DVC refuses to run outside a git repo; read-only, never commits
+    restart: unless-stopped
+
 volumes:
   mlruns:
+  airflow_home:

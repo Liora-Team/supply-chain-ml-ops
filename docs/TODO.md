@@ -504,30 +504,34 @@ Two decisions already made by the course calendar (record both as ADR notes):
 **Why:** orchestration encodes the pipeline's order and retries in code, so the whole chain
 runs from one trigger instead of tribal knowledge.
 
-### Open questions (answer at M3 kickoff)
+### Open questions (answered — [ADR 002](adr/002-airflow-orchestration.md))
 
-- Airflow deployment shape — the official docker-compose file (heavy, many services) or a
-  slim custom setup?
-- Where do the DAG containers get DVC/DagsHub credentials — mounted `.dvc/config.local`,
-  env vars, or a compose secret?
-- M3 scope: manual-trigger only, or already scheduled?
+- Airflow deployment shape → **slim custom setup**: one `airflow standalone` container
+  (scheduler + dag-processor + UI in one process, SQLite metadata on a named volume).
+- DVC/DagsHub credentials → **env vars**: `DAGSHUB_TOKEN` in `.env`, mapped by compose to
+  `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` (boto3 env chain; nothing baked in).
+- M3 scope → **manual-trigger only** (`schedule=None`); scheduling revisits with Card 4.4.
 
 ### Subtasks
 
-- [ ] Orchestrator is **Airflow** (mandatory course module, Sprint 3 Jul 20–31 — see the
+- [x] Orchestrator is **Airflow** (mandatory course module, Sprint 3 Jul 20–31 — see the
       calendar at the top of this file); one stack for both 3.1 and 3.2 (two halves of the
-      same DAG). Record the one-line ADR.
-- [ ] Agree the 3.1 ↔ 3.2 interface with Dilshana before coding: the data half ends by
+      same DAG). Record the one-line ADR. → [ADR 002](adr/002-airflow-orchestration.md)
+- [x] Agree the 3.1 ↔ 3.2 interface with Dilshana before coding: the data half ends by
       producing versioned `data/processed/` (fresh CSVs, DVC-tracked and pushed); the model
       half consumes exactly that. Write it down in the DAG module docstring.
-- [ ] Add the orchestrator as a compose service (own profile, so the default stack stays
-      light); UI port documented.
-- [ ] DAG steps, data half: ingest (reuse `scripts/get_data.py` logic — import, don't
+      → `dags/data_pipeline.py` docstring (pointer commit stays a human step, per ADR 002).
+- [x] Add the orchestrator as a compose service (own profile, so the default stack stays
+      light); UI port documented. → `--profile airflow`, UI on 127.0.0.1:8080 (README).
+- [x] DAG steps, data half: ingest (reuse `scripts/get_data.py` logic — import, don't
       shell out blindly) → preprocess → DVC add/commit + push of the refreshed
       `data/processed/`. The DAG runs in its own container: pull inputs explicitly at the
-      start, never assume the host's files.
-- [ ] Retries + failure alerts on each step (orchestrator-native settings are enough).
-- [ ] Docs: how to trigger manually, where to watch progress.
+      start, never assume the host's files. → `get_data.py` refactored into importable
+      `load_raw`/`preprocess`/`split_and_write`; ingest downloads fresh from the HF hub.
+- [x] Retries + failure alerts on each step (orchestrator-native settings are enough).
+      → `retries=2` + `retry_delay` + `on_failure_callback` log alert (no SMTP configured).
+- [x] Docs: how to trigger manually, where to watch progress. → README "Containers" section
+      (`make dag-up` / `dag-trigger`, Grid view), CONTRIBUTING §7 (DAG ↔ DVC loop).
 
 ### Done when
 

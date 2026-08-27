@@ -81,6 +81,55 @@ The API supports two registered models:
 - `reviews-classifier-3class`
 - `reviews-classifier-5class`
 
+## API security
+
+`/predict` and `/models` require a **JWT bearer token**; `/health` stays open (used by
+the Docker healthcheck and, later, k8s probes).
+
+### Issuing a token
+
+Tokens are minted with `api.auth.create_access_token` — there is no public token
+endpoint yet; this is a team/CI-side helper, not something end users call:
+
+```bash
+uv run python -c "from api.auth import create_access_token; print(create_access_token('my-client'))"
+```
+
+### Calling the API
+
+```bash
+TOKEN=$(uv run python -c "from api.auth import create_access_token; print(create_access_token('me'))")
+
+curl -s -X POST localhost:8000/predict \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"terrible, broke in a day","schema":"3-class"}'
+```
+
+A missing/invalid token gets `401`/`403`; an oversized `text` field (> 5000 chars)
+gets `422`.
+
+### Rate limiting
+
+`RATE_LIMIT_PER_MINUTE` (default 60) caps requests per client IP, resolved from
+the `X-Real-IP` header set by the nginx proxy from `$remote_addr` (the actual
+TCP peer — not spoofable by the caller, unlike `X-Forwarded-For`). Falls back
+to the direct connection when the API is hit without a proxy in front, e.g.
+`make api`. **The limiter is in-memory**: it resets on every process restart and 
+does not coordinate across multiple `api` replicas. A redis-backed store is 
+required once Card 3.4 scales the API beyond one replica.
+
+### TLS
+
+Generate the self-signed dev cert once (or let `make up` do it automatically):
+\`\`\`bash
+make certs
+\`\`\`
+
+External traffic is served over HTTPS by the nginx `proxy` service (self-signed
+cert for the course demo, mounted from `deploy/nginx/certs/`); HTTP requests on
+port 80 are redirected to 443. See [ADR 003](docs/adr/003-jwt-auth-and-self-signed-tls.md).
+
 ### Model loading
 
 When `MLFLOW_TRACKING_URI` is set, the API first tries to load the model referenced by the lowercase `production` alias:
@@ -282,13 +331,13 @@ curl.exe -k -sS https://localhost:8443/health -H "Host: api.sc-mlops.local"
 ## Containers (compose)
 
 One container per responsibility; the nginx **proxy** is the only published entry point
-(port 80 — TLS on 443 lands with Card 3.3). Internal services talk over the compose
-network by service name and are never published directly.
+(port 80 redirects to 443, where TLS is terminated — Card 3.3). Internal services
+talk over the compose network by service name and are never published directly.
 
 ```
-                 ┌────────► api:8000     (classical inference — /)
-localhost:80 ─ proxy (nginx)
-                 └────────► mlflow:5000  (local tracking UI — /mlflow/)
+                       ┌────────► api:8000     (classical inference — /)
+localhost:80 → :443 ─ proxy (nginx, TLS)
+                       └────────► mlflow:5000  (local tracking UI — /mlflow/)
 ```
 
 | Service | Runs | Notes |
@@ -298,6 +347,7 @@ localhost:80 ─ proxy (nginx)
 | `mlflow` | always | Local tracking UI for offline dev on a named volume — team truth lives on DagsHub. |
 | `training` | `--profile train` | One-shot pipeline rebuild (`training` target) over bind-mounted `data/` + `models/`. A plain `docker compose up` never retrains. |
 | `bert` | `--profile bert` | DistilBERT torch image (`bert` target); weights via `DISTILBERT_*` ([CONTRIBUTING.md §7](CONTRIBUTING.md#7-data--model-handling)). |
+| `airflow` | `--profile airflow` | Orchestrator (`airflow` target): one `airflow standalone` container running the Card 3.1/3.2 DAGs. UI on **127.0.0.1:8080** — the one deliberate, localhost-only exception to proxy-only entry ([ADR 002](docs/adr/002-airflow-orchestration.md)). |
 
 ```bash
 docker compose up -d                                  # proxy + api + mlflow
@@ -311,9 +361,19 @@ MLFLOW_TRACKING_URI=http://mlflow:5000/mlflow \
   DOCKER_UID=$(id -u) DOCKER_GID=$(id -g) docker compose --profile train up --build training
 
 docker compose --profile bert up -d --build bert      # DistilBERT service (heavy: torch)
+
+# Orchestrated data pipeline (Card 3.1). Needs DAGSHUB_TOKEN in .env for the dvc push.
+# On Linux add DOCKER_UID=$(id -u) DOCKER_GID=$(id -g), same as training above.
+make dag-up                                           # Airflow standalone, profile-gated
+open http://127.0.0.1:8080                            # UI — no login (localhost-only)
+make dag-trigger                                      # or the UI's Trigger button; add
+                                                      # {"sample": 500} there for a smoke run
+# Watch progress in the UI Grid view (per-task status + logs). Afterwards `git status`
+# shows the refreshed data/processed/*.dvc pointers — review and commit them.
+make dag-down
 ```
 
-Credentials (`MLFLOW_*`) are passed through from `.env` at runtime — never baked into images.
+Credentials (`MLFLOW_*`, `DAGSHUB_TOKEN`) are passed through from `.env` at runtime — never baked into images.
 
 ## Repository structure
 
@@ -323,8 +383,9 @@ supply-chain-ml-ops/
 ├── CONTRIBUTING.md            # collaborator rules: git flow, commits, PRs, style, tests
 ├── MILESTONES.md              # roadmap + per-phase technical tasks with owners
 ├── Makefile                   # make setup / test / lint / api / app / data / up
-├── Dockerfile                 # multi-target: api (torch-free, default) / training / bert
-├── docker-compose.yml         # proxy (nginx) + api + mlflow, plus train/bert profiles
+├── Dockerfile                 # multi-target: api (torch-free, default) / training / bert / airflow
+├── docker-compose.yml         # proxy (nginx) + api + mlflow, plus train/bert/airflow profiles
+├── dags/                      # Airflow DAGs: data_pipeline.py (Card 3.1) · model_pipeline.py (Card 3.2)
 ├── deploy/                    # nginx reverse-proxy config (deploy/nginx/nginx.conf)
 ├── pyproject.toml             # uv project — core deps + optional groups (api/app/bert/data/dev)
 ├── docs/                      # ML_CANVAS, PROJECT_MANAGEMENT, TASKS_DONE, DATA_SOURCES, adr/

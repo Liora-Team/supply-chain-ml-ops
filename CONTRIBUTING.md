@@ -123,6 +123,13 @@ Keep PRs reviewable: aim for < ~400 changed lines. Split large work.
   ```
   CI writes the same DagsHub config from the `DAGSHUB_TOKEN` repository secret (Card 2.4-A) —
   never commit real values.
+- **Containers** (the `airflow` service, Card 3.1) get the same token as the `DAGSHUB_TOKEN`
+  var in `.env`: compose maps it to `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, which the
+  S3-backed remote picks up through boto3's env chain — no `.dvc/config.local` needed inside
+  a container, nothing baked into images ([ADR 002](docs/adr/002-airflow-orchestration.md)).
+- **The orchestrated data DAG** (`dags/data_pipeline.py`) runs the loop above up to and
+  including `dvc push`; the refreshed `data/processed/*.dvc` pointers land on the host bind
+  mount, and a **human** reviews and commits them — git credentials never enter a container.
 - **Day-to-day loop:**
   ```bash
   make pull                          # start of day: restore data + weights (uv run dvc pull)
