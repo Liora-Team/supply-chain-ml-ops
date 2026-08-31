@@ -1,4 +1,4 @@
-# ADR 0003 — CI/CD & Kubernetes target for Phase 3 (Card 3.4)
+# ADR 004 — CI/CD & Kubernetes target for Phase 3 (Card 3.4)
 
 ## Context
 Card 3.4 requires: SHA-tagged images, k8s deployment with >=2 replicas, probes on `/health`, Secrets for API key + MLFLOW_*, ingress-nginx with TLS termination, and a one-step rollback.

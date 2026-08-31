@@ -58,6 +58,5 @@ Thumbs.db
 *.swp
 # Kubernetes local secrets (Never commit!)
 k8s/secrets.yaml
-*.key
 *.crt
 .tmp/

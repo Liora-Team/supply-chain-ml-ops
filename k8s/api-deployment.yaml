@@ -56,4 +56,4 @@ spec:
             - secretRef:
                 name: sc-mlops-secrets
 
-                
+

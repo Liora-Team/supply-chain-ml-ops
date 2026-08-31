@@ -21,6 +21,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.12
+        run: uv python install 3.12
+
+      - name: Sync environment for DVC
+        run: uv sync --frozen --group track
+
+      - name: Configure DVC remote credentials (DagsHub)
+        env:
+          DAGSHUB_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
+        run: |
+          uv run dvc remote modify --local dagshub access_key_id "$DAGSHUB_TOKEN"
+          uv run dvc remote modify --local dagshub secret_access_key "$DAGSHUB_TOKEN"
+
+      - name: Pull classical pipeline weights (DVC)
+        run: |
+          # Only pull the models for the API, avoiding ~160MB of data/processed
+          uv run dvc pull models/pipelines/*.dvc
+
       - uses: docker/setup-buildx-action@v3
 
       - name: Login to GHCR
@@ -29,11 +53,6 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull classical pipeline weights (DVC)
-        env:
-          DAGSHUB_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
-        run: make pull-ci
 
       - name: Build and push API image (no latest)
         uses: docker/build-push-action@v6
@@ -76,7 +95,7 @@ jobs:
           kubectl apply -f k8s/namespace.yaml
 
           # Runtime secrets (MLFLOW_* empty so the API doesn't depend on external services in CI)
-           kubectl -n "${K8S_NAMESPACE}" create secret generic sc-mlops-secrets \
+          kubectl -n "${K8S_NAMESPACE}" create secret generic sc-mlops-secrets \
             --from-literal=JWT_SECRET_KEY="dummy-ci-secret" \
             --from-literal=API_KEY="dummy-ci" \
             --from-literal=MLFLOW_TRACKING_URI="" \
@@ -130,35 +149,38 @@ jobs:
             exit 1
           fi
 
-          echo "Health check passed. Testing /predict endpoint..."
+          echo "Health check passed. Minting JWT inside the running API pod..."
+          TOKEN=$(kubectl -n "${K8S_NAMESPACE}" exec deploy/sc-mlops-api -- python -c "from api.auth import create_access_token; print(create_access_token('ci'))")
+
+          echo "Testing authenticated /predict endpoint..."
           PREDICT_BODY=$(curl -k -sS -X POST "https://localhost:8443/predict" \
             -H "Host: ${INGRESS_HOST}" \
+            -H "Authorization: Bearer ${TOKEN}" \
             -H 'Content-Type: application/json' \
             -d '{"text":"terrible, broke in a day","schema":"3-class"}' || true)
-          
+
           echo "$PREDICT_BODY" | grep -q '"label_display"' || {
             echo "Predict check failed. Response: $PREDICT_BODY"
             kill $PF_PID || true
             exit 1
           }
-          
+
           echo "Predict check passed."
           kill $PF_PID || true
 
       - name: Rehearse rollback (apply broken image then rollout undo)
         run: |
           set -euo pipefail
-          # Apply a broken image
+
+          # 1. Apply a broken image
           sed "s/REPLACE_WITH_SHA/does-not-exist/g" k8s/api-deployment.yaml | kubectl apply -f -
-          
-          # Wait for deployment controller to observe the bad revision
+
+          # 2. Wait for deployment controller to observe the bad revision
           kubectl -n "${K8S_NAMESPACE}" rollout status deployment/sc-mlops-api --timeout=60s || true
-          
-          # Roll back
+
+          # 3. Roll back
           kubectl -n "${K8S_NAMESPACE}" rollout undo deployment/sc-mlops-api
           kubectl -n "${K8S_NAMESPACE}" rollout status deployment/sc-mlops-api --timeout=180s
-          
-          # Assert the image is back to the correct SHA
-          kubectl -n "${K8S_NAMESPACE}" get deploy sc-mlops-api -o jsonpath='{.spec.template.spec.containers[0].image}' | grep -q "${{ github.sha }}"
 
-          
+          # 4. Assert the image is back to the correct SHA
+          kubectl -n "${K8S_NAMESPACE}" get deploy sc-mlops-api -o jsonpath='{.spec.template.spec.containers[0].image}' | grep -q "${{ github.sha }}"

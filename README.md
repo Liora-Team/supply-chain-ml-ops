@@ -211,7 +211,7 @@ Restart the API after rollback so it reloads the version referenced by `producti
 
 ## Kubernetes deployment & rollback (Card 3.4)
 
-This repository supports scalable API serving on Kubernetes (Card 3.4 / #19):
+This repository supports scalable API serving on Kubernetes (Card 3.4 / #19). See [ADR 004](docs/adr/004-cicd-k8s.md) for architectural decisions:
 
 - **Deployment**: `sc-mlops-api` with **>= 2 replicas** for fault tolerance and zero-downtime serving.
 - **Service**: `sc-mlops-api` exposed internally as **ClusterIP** providing L4 load balancing across replicas.
@@ -289,7 +289,7 @@ In one terminal:
 kubectl -n ingress-nginx port-forward svc/ingress-nginx-controller 8443:443
 ```
 
-In a second terminal:(Note: you must obtain a valid JWT token first as per API security rules, unless testing internally bypasses it in CI):
+In a second terminal, mint a JWT token (using the same JWT_SECRET_KEY configured in sc-mlops-secrets) and verify the endpoints:
 ```bash
 curl -k -sS https://localhost:8443/health -H "Host: api.sc-mlops.local"
 curl -k -sS -X POST https://localhost:8443/predict -H "Host: api.sc-mlops.local" -H "Content-Type: application/json" -d '{"text":"terrible","schema":"3-class"}'
@@ -335,8 +335,16 @@ $tag = "<GIT_SHA_OR_TAG>"
 
 #### Verify HTTPS
 ```powershell
+$token = (uv run python -c "from api.auth import create_access_token; print(create_access_token('dev'))")
+
 curl.exe -k -sS https://localhost:8443/health -H "Host: api.sc-mlops.local"
-curl.exe -k -sS -X POST https://localhost:8443/predict -H "Host: api.sc-mlops.local" -H "Content-Type: application/json" -d "{\`"text\`":\`"terrible\`",\`"schema\`":\`"3-class\`"}"
+curl.exe -k -sS -X POST https://localhost:8443/predict -H "Host: api.sc-mlops.local" -H "Authorization: Bearer $token" -H "Content-Type: application/json" -d "{\`"text\`":\`"terrible\`",\`"schema\`":\`"3-class\`"}"
+
+# Rehearse Rollback
+(Get-Content k8s/api-deployment.yaml -Raw) -replace "REPLACE_WITH_SHA", "does-not-exist" | kubectl apply -f -
+kubectl -n sc-mlops rollout status deployment/sc-mlops-api --timeout=60s
+kubectl -n sc-mlops rollout undo deployment/sc-mlops-api
+kubectl -n sc-mlops rollout status deployment/sc-mlops-api --timeout=180s"
 ```
 
 ---
