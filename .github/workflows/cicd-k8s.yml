@@ -43,7 +43,7 @@ jobs:
       - name: Pull classical pipeline weights (DVC)
         run: |
           # Only pull the models for the API, avoiding ~160MB of data/processed
-          uv run dvc pull models/pipelines/*.dvc
+          make pull-ci
 
       - uses: docker/setup-buildx-action@v3
 
