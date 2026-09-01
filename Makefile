@@ -1,6 +1,6 @@
 # Supply Chain MLOps — common tasks. Run `make help` for the list.
 .DEFAULT_GOAL := help
-.PHONY: help setup setup-full pull push test lint fmt api app data train eda-artifacts up down build clean dag-up dag-down dag-trigger
+.PHONY: help setup setup-full pull push test lint fmt api app data train eda-artifacts certs up down build clean dag-up dag-down dag-trigger
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -45,7 +45,13 @@ train:  ## Rebuild the served model pipelines (run `make data` first)
 eda-artifacts:  ## Rebuild the committed EDA artefacts (needs the uncommitted featurised parquet)
 	uv run --group data python scripts/build_eda_artifacts.py
 
-up:  ## Build + start the compose stack (proxy + api + mlflow)
+certs:  ## Generate the self-signed TLS cert for the nginx proxy (Card 3.3)
+	mkdir -p deploy/nginx/certs
+	openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+	  -keyout deploy/nginx/certs/privkey.pem \
+	  -out deploy/nginx/certs/fullchain.pem -subj "/CN=localhost"
+
+up: certs  ## Build + start the compose stack (proxy + api + mlflow)
 	docker compose up --build -d
 
 down:  ## Stop the compose stack

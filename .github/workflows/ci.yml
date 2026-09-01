@@ -40,6 +40,8 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+        env:
+          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY || 'ci-test-secret-key' }}
 
       # tests/test_dag.py importorskips airflow, which the sync above doesn't install, so
       # without this step a broken DAG merges green (same hole build-images closed for the
@@ -56,6 +58,8 @@ jobs:
   # No DVC pull: this checks that the targets build, not that they serve.
   build-images:
     runs-on: ubuntu-latest
+    env:
+      JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY || 'ci-test-secret-key' }}
     steps:
       - uses: actions/checkout@v4
 
