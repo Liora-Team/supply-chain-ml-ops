@@ -152,6 +152,7 @@ services:
     environment:
       HOME: /tmp # same overridden-UID workaround as `training`
       AIRFLOW_HOME: /opt/airflow
+      MLFLOW_TRACKING_URI: "${MLFLOW_TRACKING_URI:-}"
       AIRFLOW__CORE__DAGS_FOLDER: /app/dags
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       # Login-free UI — acceptable only because the port is bound to 127.0.0.1.
@@ -165,6 +166,7 @@ services:
       - airflow_home:/opt/airflow # SQLite metadata + logs survive restarts
       - ./dags:/app/dags # edit DAGs without rebuilding
       - ./data:/app/data # DAG outputs + refreshed .dvc pointers land on the host
+      - ./models:/app/models # training inputs and local model artifacts
       - ./.dvc:/app/.dvc # shared DVC config + cache: in-container hashes valid on host
       - ./.git:/app/.git:ro # DVC refuses to run outside a git repo; read-only, never commits
     restart: unless-stopped

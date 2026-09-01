@@ -36,6 +36,7 @@ from sklearn.svm import LinearSVC
 from xgboost import XGBClassifier
 
 # Guarded import to keep experiment tracking optional (opt-in only).
+MLFLOW_REQUIRED = os.getenv("MLFLOW_REQUIRED") == "1"
 HAS_MLFLOW = False
 try:
     import mlflow
@@ -43,7 +44,8 @@ try:
 
     HAS_MLFLOW = True
 except ImportError:
-    pass
+    if MLFLOW_REQUIRED:
+        raise
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data" / "processed"
@@ -139,6 +141,11 @@ def main() -> None:
     train = pd.read_csv(DATA / "train.csv")
     test = pd.read_csv(DATA / "test.csv")
 
+    train_subset = os.getenv("TRAIN_SUBSET")
+    is_subset_run = bool(train_subset)
+    if train_subset:
+        train = train.head(int(train_subset))
+
     Xtr_text = train["review_lemma"].fillna("")
     Xte_text = test["review_lemma"].fillna("")
     ytr5, yte5 = train["stars"].to_numpy(), test["stars"].to_numpy()
@@ -182,12 +189,13 @@ def main() -> None:
 
             # --- LOCAL ARTEFACT CREATION FIRST (Fixes Blocker 2) ---
             # Prioritise local serialisation to ensure artefacts are created even if tracking fails.
-            joblib.dump(pipe, OUT / f"{out_id}.joblib")
-            meta["pipeline_macro_f1"] = float(f1)
-            meta["pipeline_weighted_f1"] = float(wf1)
-            meta["pipeline_accuracy"] = float(acc)
-            meta["pipeline_note"] = "Bundled Pipeline(tfidf->clf) by scripts/build_pipelines.py"
-            (OUT / f"{out_id}.json").write_text(json.dumps(meta, indent=2, default=str))
+            if not is_subset_run:
+                joblib.dump(pipe, OUT / f"{out_id}.joblib")
+                meta["pipeline_macro_f1"] = float(f1)
+                meta["pipeline_weighted_f1"] = float(wf1)
+                meta["pipeline_accuracy"] = float(acc)
+                meta["pipeline_note"] = "Bundled Pipeline(tfidf->clf) by scripts/build_pipelines.py"
+                (OUT / f"{out_id}.json").write_text(json.dumps(meta, indent=2, default=str))
 
             # --- MLFLOW TRACKING (Observability only, non-blocking) ---
             if HAS_MLFLOW:
@@ -228,6 +236,9 @@ def main() -> None:
                         )
                 except Exception as e:
                     # Catch exceptions so tracking failure does not destroy local artefacts.
+                    if MLFLOW_REQUIRED:
+                        raise
+                        # Preserve non-blocking tracking for local runs.
                     print(f"Warning: MLflow tracking failed for {out_id}: {e}")
             # --- MLFLOW TRACKING ENDS HERE ---
 
@@ -240,8 +251,11 @@ def main() -> None:
         print(f"NOTE — pipeline diverged >{PARITY_TOLERANCE} from reported (expected for XGBoost):")
         for i, r, f in bad:
             print(f"  {i}: reported={r:.4f} pipeline={f:.4f}")
-    print(f"Saved {len(rows)} bundled pipelines to {OUT}")
-
+    #    print(f"Saved {len(rows)} bundled pipelines to {OUT}")
+    if is_subset_run:
+        print("TRAIN_SUBSET is set; skipped local pipeline artifact writes.")
+    else:
+        print(f"Saved {len(rows)} bundled pipelines to {OUT}")
     # Backfill missing DistilBERT run (Card 2.1 requirement / Should-fix 4a).
     if HAS_MLFLOW:
         try:
@@ -252,6 +266,8 @@ def main() -> None:
                 mlflow.log_metric("macro_f1", 0.6811)
                 print("Logged DistilBERT backfill metrics successfully.")
         except Exception as e:
+            if MLFLOW_REQUIRED:
+                raise
             print(f"Warning: MLflow backfill tracking failed: {e}")
 
 

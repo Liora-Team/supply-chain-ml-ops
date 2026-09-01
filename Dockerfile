@@ -69,7 +69,7 @@ FROM base AS airflow
 
 ENV AIRFLOW_HOME=/opt/airflow
 
-RUN uv sync --frozen --no-install-project --no-default-groups --group orchestration --group data
+RUN uv sync --frozen --no-install-project --no-default-groups --group orchestration --group data --group track
 
 # The preprocess task lemmatises in-container, so corpora are baked like api/bert.
 RUN uv run --no-sync python -c "import nltk; [nltk.download(p, quiet=True, download_dir='/usr/share/nltk_data') for p in ('stopwords','wordnet','omw-1.4')]"
