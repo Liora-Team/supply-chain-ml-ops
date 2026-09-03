@@ -150,7 +150,7 @@ jobs:
           fi
 
           echo "Health check passed. Minting JWT inside the running API pod..."
-          TOKEN=$(kubectl -n "${K8S_NAMESPACE}" exec deploy/sc-mlops-api -- python -c "from api.auth import create_access_token; print(create_access_token('ci'))")
+          TOKEN=$(kubectl -n "${K8S_NAMESPACE}" exec deploy/sc-mlops-api -- uv run --no-sync python -c "from api.auth import create_access_token; print(create_access_token('ci'))")
 
           echo "Testing authenticated /predict endpoint..."
           PREDICT_BODY=$(curl -k -sS -X POST "https://localhost:8443/predict" \

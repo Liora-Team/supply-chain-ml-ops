@@ -318,14 +318,24 @@ In one terminal:
 kubectl -n ingress-nginx port-forward svc/ingress-nginx-controller 8443:443
 ```
 
-In a second terminal, mint a JWT token (using the same JWT_SECRET_KEY configured in sc-mlops-secrets) and verify the endpoints:
+In a second terminal, mint a JWT token using the same JWT_SECRET_KEY value that is stored in sc-mlops-secrets, then verify the endpoints:
 ```bash
+export JWT_SECRET_KEY="<same-value-as-in-sc-mlops-secrets>"
+TOKEN=$(uv run python -c "from api.auth import create_access_token; print(create_access_token('local'))")
+
 curl -k -sS https://localhost:8443/health -H "Host: api.sc-mlops.local"
-curl -k -sS -X POST https://localhost:8443/predict -H "Host: api.sc-mlops.local" -H "Content-Type: application/json" -d '{"text":"terrible","schema":"3-class"}'
+curl -k -sS -X POST https://localhost:8443/predict \
+  -H "Host: api.sc-mlops.local" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"terrible","schema":"3-class"}'
 ```
 
 Rehearse rollback:
 ```bash
+# Create a deliberately broken second revision, then restore the previous one.
+sed "s/REPLACE_WITH_SHA/does-not-exist/g" k8s/api-deployment.yaml | kubectl apply -f -
+kubectl -n sc-mlops rollout status deployment/sc-mlops-api --timeout=60s || true
 kubectl -n sc-mlops rollout undo deployment/sc-mlops-api
 kubectl -n sc-mlops rollout status deployment/sc-mlops-api --timeout=180s
 ```
@@ -373,7 +383,7 @@ curl.exe -k -sS -X POST https://localhost:8443/predict -H "Host: api.sc-mlops.lo
 (Get-Content k8s/api-deployment.yaml -Raw) -replace "REPLACE_WITH_SHA", "does-not-exist" | kubectl apply -f -
 kubectl -n sc-mlops rollout status deployment/sc-mlops-api --timeout=60s
 kubectl -n sc-mlops rollout undo deployment/sc-mlops-api
-kubectl -n sc-mlops rollout status deployment/sc-mlops-api --timeout=180s"
+kubectl -n sc-mlops rollout status deployment/sc-mlops-api --timeout=180s
 ```
 
 ---
