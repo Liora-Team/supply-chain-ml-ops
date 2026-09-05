@@ -13,6 +13,7 @@ import os
 from functools import lru_cache
 
 from fastapi import Depends, FastAPI, HTTPException
+from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.auth import enforce_rate_limit, verify_token
@@ -25,11 +26,40 @@ app = FastAPI(
     title="Trustpilot Review Rating API",
     version="0.1.0",
     description="Predict a review's star rating from its text (classical models).",
+    openapi_tags=[
+        {"name": "health", "description": "Liveness probe (unauthenticated)."},
+        {"name": "models", "description": "Inspect the models the service can serve."},
+        {"name": "inference", "description": "Rating prediction from raw review text."},
+        {
+            "name": "monitoring",
+            "description": "Prometheus metrics (unauthenticated; the compose nginx proxy "
+            "returns 403 so it is reachable only inside the compose network).",
+        },
+    ],
 )
+
+# Prometheus /metrics with the instrumentator's default HTTP metrics
+# (http_requests_total, http_request_duration_seconds, request/response sizes).
+Instrumentator().instrument(app).expose(app, tags=["monitoring"])
+
+# Auth/rate-limit error shapes shared by every protected route (see api/auth.py).
+AUTH_RESPONSES: dict[int | str, dict] = {
+    401: {"description": "Missing bearer token."},
+    403: {"description": "Invalid or expired token."},
+    429: {"description": "Rate limit exceeded (RATE_LIMIT_PER_MINUTE requests/min per IP)."},
+}
 
 
 class PredictRequest(BaseModel):
-    model_config = ConfigDict(protected_namespaces=(), populate_by_name=True)
+    """One review to classify."""
+
+    model_config = ConfigDict(
+        protected_namespaces=(),
+        populate_by_name=True,
+        json_schema_extra={
+            "examples": [{"text": "Fast delivery and great support, would buy again!"}]
+        },
+    )
 
     text: str = Field(..., min_length=1, max_length=5000, description="Raw review text.")
     label_schema: str = Field(
@@ -43,14 +73,36 @@ class PredictRequest(BaseModel):
 
 
 class PredictResponse(BaseModel):
-    model_config = ConfigDict(protected_namespaces=(), populate_by_name=True)
+    """Prediction for one review."""
 
-    model_id: str
-    label_schema: str = Field(alias="schema", serialization_alias="schema")
-    label: int
-    label_display: str
-    probs: dict[str, float]
-    proba_kind: str
+    model_config = ConfigDict(
+        protected_namespaces=(),
+        populate_by_name=True,
+        json_schema_extra={
+            "examples": [
+                {
+                    "model_id": "reviews-classifier-3class",
+                    "schema": "3-class",
+                    "label": 2,
+                    "label_display": "positive",
+                    "probs": {"negative": 0.03, "neutral": 0.12, "positive": 0.85},
+                    "proba_kind": "proba",
+                }
+            ]
+        },
+    )
+
+    model_id: str = Field(description="Model that actually served the prediction.")
+    label_schema: str = Field(
+        alias="schema", serialization_alias="schema", description="Label schema used."
+    )
+    label: int = Field(description="Predicted class index.")
+    label_display: str = Field(description="Human-readable label (e.g. 'positive' or '5').")
+    probs: dict[str, float] = Field(description="Per-class probabilities keyed by display label.")
+    proba_kind: str = Field(
+        description="How probabilities were produced: 'proba', 'softmax(decision)' "
+        "or 'softmax(logits)'."
+    )
 
 
 # Default model
@@ -74,13 +126,39 @@ def production_model(schema: str):
 
 
 # Routes
-@app.get("/health")
+@app.get("/health", tags=["health"])
 def health() -> dict:
     """Liveness probe."""
     return {"status": "ok"}
 
 
-@app.get("/models", dependencies=[Depends(verify_token), Depends(enforce_rate_limit)])
+@app.get(
+    "/models",
+    tags=["models"],
+    dependencies=[Depends(verify_token), Depends(enforce_rate_limit)],
+    responses={
+        **AUTH_RESPONSES,
+        200: {
+            "description": "Loadable models, best macro-F1 first per schema.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "models": [
+                            {
+                                "id": "reviews-classifier-3class",
+                                "schema": "3-class",
+                                "algo": None,
+                                "macro_f1": None,
+                                "default": True,
+                                "source": "registry",
+                            }
+                        ]
+                    }
+                }
+            },
+        },
+    },
+)
 def models(schema: str | None = None) -> dict:
     """List loadable classical models (optionally filtered to one schema)."""
     schemas = [schema] if schema else list(SCHEMAS)
@@ -119,8 +197,13 @@ def models(schema: str | None = None) -> dict:
 
 @app.post(
     "/predict",
+    tags=["inference"],
     response_model=PredictResponse,
     dependencies=[Depends(verify_token), Depends(enforce_rate_limit)],
+    responses={
+        **AUTH_RESPONSES,
+        404: {"description": "Unknown model_id."},
+    },
 )
 def predict(req: PredictRequest) -> PredictResponse:
     """Predict the star rating (or 3-class sentiment) of one review."""
