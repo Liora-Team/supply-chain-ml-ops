@@ -14,14 +14,12 @@ venv/
 env/
 .python-version.local
 # NOTE: keep `uv.lock` committed — it is what pins identical deps for the whole team.
-
 # ---- Environment / secrets ----
 .env
 .env.*
 !.env.example
 *.pem
 *.key
-
 # ---- Data ----
 # Large / generated splits are versioned with DVC from Phase 2 — not committed to git.
 data/raw/
@@ -32,24 +30,19 @@ data/processed/*.parquet
 # small committed EDA sample (53 KB) — re-included (gitignore has no inline comments!)
 !data/processed/eda_sample.parquet
 # Also committed (small runtime artifact): eda_summary.json.
-
 # ---- Models ----
 # All model weights (classical *.joblib incl. RandomForest 5-class, and both DistilBERT
 # fine-tune dirs) are DVC-tracked — see models/**/.gitignore, written by `dvc add`.
 # JSON metric sidecars stay in git.
-
 # ---- Experiment tracking (MLflow, Phase 2) ----
 mlflow.db
 mlruns/
 mlartifacts/
-
 # ---- Notebooks (this project intentionally excludes notebooks) ----
 *.ipynb
 .ipynb_checkpoints/
-
 # ---- Course material (kept locally, not committed) ----
 *.pdf
-
 # ---- Testing / coverage ----
 .pytest_cache/
 .coverage
@@ -57,10 +50,13 @@ htmlcov/
 .tox/
 .mypy_cache/
 .ruff_cache/
-
 # ---- OS / editors ----
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
 *.swp
+# Kubernetes local secrets (Never commit!)
+k8s/secrets.yaml
+*.crt
+.tmp/
