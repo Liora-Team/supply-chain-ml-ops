@@ -209,7 +209,6 @@ Restart the API after rollback so it reloads the version referenced by `producti
 > image small). The DistilBERT path becomes its own service in Phase 2's microservices split
 > (MILESTONES Task 2.4; weight handling → [CONTRIBUTING.md §7](CONTRIBUTING.md#7-data--model-handling)).
 
-
 ## Automated promotion gate
 
 
@@ -238,6 +237,156 @@ docker compose --profile airflow exec airflow \
 A `train_subset` run still logs its candidate to MLflow for evaluation, but it skips writes to `models/pipelines/`, so a deliberately crippled run cannot replace the local fallback artifacts. The normal test split is retained for evaluation.
 
 Manual rollback is performed by moving the `production` alias back to the previous registered version; see "Roll back a promotion" above.
+
+## Kubernetes deployment & rollback (Card 3.4)
+
+This repository supports scalable API serving on Kubernetes (Card 3.4 / #19). See [ADR 004](docs/adr/004-cicd-k8s.md) for architectural decisions:
+
+- **Deployment**: `sc-mlops-api` with **>= 2 replicas** for fault tolerance and zero-downtime serving.
+- **Service**: `sc-mlops-api` exposed internally as **ClusterIP** providing L4 load balancing across replicas.
+- **Health Checks**: Liveness and readiness probes continuously monitor `GET /health`.
+- **Ingress**: `ingress-nginx` acts as the single external entry point over **HTTPS**.
+- **TLS Termination**: Handled at the Ingress boundary via the Kubernetes TLS secret `sc-mlops-tls`.
+- **Immutable Releases**: API images are tagged with the exact **Git SHA** (never `latest`), ensuring predictable deployments and one-step rollbacks.
+- **Secrets Isolation**: Managed via Kubernetes Secret `sc-mlops-secrets` (never committed).
+
+### 1. CI/CD Pipeline (`cicd-k8s.yml`)
+
+On pushes to `dev`, GitHub Actions (`.github/workflows/cicd-k8s.yml`):
+1. Builds the `api` Docker image target (after pulling weights via `DVC`).
+2. Publishes the image to GHCR as `ghcr.io/liora-team/supply-chain-ml-ops-api:<GIT_SHA>`.
+3. Provisions an ephemeral `kind` cluster to apply `k8s/` manifests, verify HTTPS routing via `ingress-nginx` (testing both `/health` and `/predict`), and rehearse an asserted **one-step rollback** (`kubectl rollout undo`).
+
+### 2. Local Kubernetes runbook (`kind` / Docker Desktop)
+
+#### Prerequisites
+- A running local cluster (`kind` or Docker Desktop Kubernetes) + `kubectl`.
+- `ingress-nginx` controller installed in the cluster.
+- Runtime secrets provided via a Kubernetes Secret named `sc-mlops-secrets` (**never commit secrets**).
+- A TLS secret named `sc-mlops-tls` in namespace `sc-mlops` (self-signed is valid for local testing).
+
+#### Step 1: Install `ingress-nginx`
+If the controller is not already installed:
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.3/deploy/static/provider/cloud/deploy.yaml
+kubectl -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=300s
+```
+
+#### Step 2: Create namespace and runtime secrets
+```bash
+kubectl apply -f k8s/namespace.yaml
+
+# Copy secret template and edit credentials
+cp k8s/secrets.example.yaml k8s/secrets.yaml
+
+# Create GHCR pull secret (Required for private packages)
+kubectl -n sc-mlops create secret docker-registry ghcr-pull-secret \
+  --docker-server=ghcr.io \
+  --docker-username=<GITHUB_USERNAME> \
+  --docker-password=<GHCR_PAT>
+
+# Apply the main secrets file
+kubectl apply -f k8s/secrets.yaml
+# k8s/secrets.yaml must remain git-ignored.
+```
+
+#### Step 3: Create TLS secret (local testing)
+Generate a short-lived self-signed certificate:
+```bash
+openssl req -x509 -nodes -days 7 -newkey rsa:2048 \
+  -keyout tls.key -out tls.crt \
+  -subj "/CN=api.sc-mlops.local/O=sc-mlops" \
+  -addext "subjectAltName=DNS:api.sc-mlops.local"
+
+kubectl -n sc-mlops create secret tls sc-mlops-tls --key tls.key --cert tls.crt
+rm tls.key tls.crt
+```
+
+#### Step 4: Deploy core infrastructure and image tag
+```bash
+kubectl apply -f k8s/api-service.yaml
+kubectl apply -f k8s/ingress.yaml
+
+# Replace <GIT_SHA> with the target Git SHA from GHCR
+sed "s/REPLACE_WITH_SHA/<GIT_SHA>/g" k8s/api-deployment.yaml | kubectl apply -f -
+kubectl -n sc-mlops rollout status deployment/sc-mlops-api --timeout=180s
+```
+
+#### Step 5: Verify HTTPS routing and rehearse Rollback
+In one terminal:
+```bash
+kubectl -n ingress-nginx port-forward svc/ingress-nginx-controller 8443:443
+```
+
+In a second terminal, mint a JWT token using the same JWT_SECRET_KEY value that is stored in sc-mlops-secrets, then verify the endpoints:
+```bash
+export JWT_SECRET_KEY="<same-value-as-in-sc-mlops-secrets>"
+TOKEN=$(uv run python -c "from api.auth import create_access_token; print(create_access_token('local'))")
+
+curl -k -sS https://localhost:8443/health -H "Host: api.sc-mlops.local"
+curl -k -sS -X POST https://localhost:8443/predict \
+  -H "Host: api.sc-mlops.local" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"terrible","schema":"3-class"}'
+```
+
+Rehearse rollback:
+```bash
+# Create a deliberately broken second revision, then restore the previous one.
+sed "s/REPLACE_WITH_SHA/does-not-exist/g" k8s/api-deployment.yaml | kubectl apply -f -
+kubectl -n sc-mlops rollout status deployment/sc-mlops-api --timeout=60s || true
+kubectl -n sc-mlops rollout undo deployment/sc-mlops-api
+kubectl -n sc-mlops rollout status deployment/sc-mlops-api --timeout=180s
+```
+
+### Windows / PowerShell Runbook
+
+The Kubernetes runbook above uses Unix utilities (`openssl`, `sed`, `cp`, `rm`). PowerShell equivalents:
+
+#### TLS certificate without local OpenSSL
+```powershell
+docker run --rm -v "${PWD}:/export" alpine/openssl req -x509 -nodes -days 7 -newkey rsa:2048 `
+  -keyout /export/tls.key -out /export/tls.crt `
+  -subj "/CN=api.sc-mlops.local/O=sc-mlops" `
+  -addext "subjectAltName=DNS:api.sc-mlops.local"
+
+kubectl -n sc-mlops create secret tls sc-mlops-tls --key tls.key --cert tls.crt --dry-run=client -o yaml | kubectl apply -f -
+Remove-Item -Force tls.key, tls.crt
+```
+
+#### Copy the secrets template and create GHCR secret
+```powershell
+Copy-Item k8s/secrets.example.yaml k8s/secrets.yaml
+kubectl apply -f k8s/secrets.yaml
+
+$ghcrUser = Read-Host "GitHub Username"
+$ghcrToken = Read-Host "GHCR PAT"
+kubectl -n sc-mlops create secret docker-registry ghcr-pull-secret --docker-server=ghcr.io --docker-username=$ghcrUser --docker-password=$ghcrToken
+Remove-Variable ghcrToken
+```
+
+#### Apply a deployment using a selected SHA/tag
+```powershell
+$tag = "<GIT_SHA_OR_TAG>"
+(Get-Content k8s/api-deployment.yaml -Raw) -replace "REPLACE_WITH_SHA", $tag | kubectl apply -f -
+```
+
+#### Verify HTTPS
+```powershell
+$token = (uv run python -c "from api.auth import create_access_token; print(create_access_token('dev'))")
+
+curl.exe -k -sS https://localhost:8443/health -H "Host: api.sc-mlops.local"
+curl.exe -k -sS -X POST https://localhost:8443/predict -H "Host: api.sc-mlops.local" -H "Authorization: Bearer $token" -H "Content-Type: application/json" -d "{\`"text\`":\`"terrible\`",\`"schema\`":\`"3-class\`"}"
+
+# Rehearse Rollback
+(Get-Content k8s/api-deployment.yaml -Raw) -replace "REPLACE_WITH_SHA", "does-not-exist" | kubectl apply -f -
+kubectl -n sc-mlops rollout status deployment/sc-mlops-api --timeout=60s
+kubectl -n sc-mlops rollout undo deployment/sc-mlops-api
+kubectl -n sc-mlops rollout status deployment/sc-mlops-api --timeout=180s
+```
+
+---
 
 ## Containers (compose)
 
