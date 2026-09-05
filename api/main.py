@@ -32,8 +32,8 @@ app = FastAPI(
         {"name": "inference", "description": "Rating prediction from raw review text."},
         {
             "name": "monitoring",
-            "description": "Prometheus metrics (unauthenticated; blocked at the nginx "
-            "proxy, reachable only inside the compose/k8s network).",
+            "description": "Prometheus metrics (unauthenticated; the compose nginx proxy "
+            "returns 403 so it is reachable only inside the compose network).",
         },
     ],
 )

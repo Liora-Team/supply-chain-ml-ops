@@ -43,7 +43,7 @@ make setup                       # = uv sync
 make pull                        # = uv run dvc pull
 
 # 3. Run the test suite (preprocessing + inference + API).
-make test                        # 39 passing (first run downloads NLTK data once — needs network)
+make test                        # first run downloads NLTK data once — needs network
 
 # 4. Serve the inference API.
 make api                         # → http://localhost:8000/docs
@@ -133,10 +133,11 @@ port 80 are redirected to 443. See [ADR 003](docs/adr/003-jwt-auth-and-self-sign
 ### Metrics
 
 `/metrics` serves Prometheus metrics (request counts, latency histograms — Card 4.3,
-scraped by Card 4.2's Prometheus at `api:8000`). It is **unauthenticated by design** but
-**not publicly reachable**: the nginx proxy answers `403` for `/metrics`, so it is only
-available inside the compose/k8s network. Locally (`make api`, no proxy) it is open at
-`localhost:8000/metrics`.
+scraped by Card 4.2's Prometheus at `api:8000`). It is **unauthenticated by design**. In
+the compose stack it is **not publicly reachable**: the nginx proxy answers `403` for
+`/metrics`, so it is only available inside the compose network. The k8s Ingress
+(`k8s/ingress.yaml`) does **not** block it yet — restricting it there is a follow-up.
+Locally (`make api`, no proxy) it is open at `localhost:8000/metrics`.
 
 ### Model loading
 

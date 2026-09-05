@@ -30,7 +30,8 @@ A model deploy is just moving the MLflow `production` alias — no rebuild, no n
 3. Restart the API so it drops its in-process model cache and loads the new version:
 
    ```bash
-   docker compose restart api
+   docker compose restart api                                   # compose stack
+   kubectl -n sc-mlops rollout restart deployment/sc-mlops-api  # k8s
    ```
 
 4. Verify — `source` should be `registry` and the registered name current:
@@ -45,15 +46,14 @@ Details and the no-`--run-id` variant: [README — Promote a model](../README.md
 
 1. Open a PR to `dev`, get a review, merge ([CONTRIBUTING.md](../CONTRIBUTING.md) — CI
    must be green).
-2. Rebuild and restart the stack on the host:
+2. The merge to `dev` triggers the `cicd-k8s` workflow (Card 3.4): it builds a
+   SHA-tagged image on GHCR and rolls it out to the k8s deployment — nothing to run
+   by hand. See [ADR 004](adr/004-cicd-k8s.md).
+3. Compose stack (course demo host): rebuild and restart manually:
 
    ```bash
    make build && make up
    ```
-
-> The automated path (CI builds a SHA-tagged image on GHCR, k8s rolls it out) is
-> Card 3.4 — **pending PR #35**. Once merged, step 2 becomes "merge and let the
-> pipeline deploy".
 
 ---
 
@@ -67,16 +67,20 @@ snippet at every promotion; the canonical copy is in
 [README — Roll back a promotion](../README.md#roll-back-a-promotion).
 
 1. Run the printed restore snippet (sets the alias back to `<previous-version>`).
-2. `docker compose restart api` — same cache reason as above.
+2. Restart the API (`docker compose restart api` / `kubectl rollout restart`) — same cache reason as above.
 3. Verify with `/models` as in 1a.
 
 ### 2b. Roll back code
 
-1. Revert the offending commit on `dev` (`git revert <sha>`, PR, merge).
-2. `make build && make up` to serve the reverted code.
+1. Fastest (k8s): roll the deployment back to the previous image:
 
-> With Card 3.4 (**pending PR #35**) this becomes an image-tag revert:
-> `kubectl -n sc-mlops rollout undo deployment/sc-mlops-api`.
+   ```bash
+   kubectl -n sc-mlops rollout undo deployment/sc-mlops-api
+   ```
+
+2. Then revert the offending commit on `dev` (`git revert <sha>`, PR, merge) so the
+   next `cicd-k8s` run does not redeploy the bad code.
+3. Compose stack: `make build && make up` after the revert lands.
 
 ---
 
@@ -96,10 +100,17 @@ make dag-down
 
 Afterwards review and commit the refreshed `data/processed/*.dvc` pointers.
 
-> The model DAG (`model_pipeline`: train → evaluate → **promotion gate**) is Card 3.2 —
-> **pending PR #34**. Its gate only moves the `production` alias when the new run's
-> macro-F1 is strictly greater than the current production model's; otherwise nothing
-> is promoted.
+Then trigger the model DAG (`model_pipeline`: train → evaluate → **promotion gate**,
+Card 3.2):
+
+```bash
+docker compose --profile airflow exec airflow \
+  airflow dags trigger model_pipeline
+```
+
+Its gate only moves the `production` alias when the new run's macro-F1 is strictly
+greater than the current production model's; otherwise nothing is promoted. Details:
+[README — Automated promotion gate](../README.md#automated-promotion-gate).
 
 ### 3b. Manual fallback
 
