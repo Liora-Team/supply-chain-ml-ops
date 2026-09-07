@@ -61,6 +61,7 @@ track = [
 orchestration = [
     "apache-airflow==3.3.1",
     "dvc[s3]>=3.67.1",  # the DAG's last step runs dvc add/push in-container
+    "evidently>=0.7,<0.8",
 ]
 # Developer tooling.
 dev = [
