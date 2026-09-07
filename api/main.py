@@ -12,11 +12,12 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.auth import enforce_rate_limit, verify_token
+from monitoring.request_store import log_prediction
 from src import registry
 from src.inference import predict_classical, predict_loaded_classical
 
@@ -205,7 +206,7 @@ def models(schema: str | None = None) -> dict:
         404: {"description": "Unknown model_id."},
     },
 )
-def predict(req: PredictRequest) -> PredictResponse:
+def predict(req: PredictRequest, background_tasks: BackgroundTasks) -> PredictResponse:
     """Predict the star rating (or 3-class sentiment) of one review."""
     if req.label_schema not in SCHEMAS:
         raise HTTPException(
@@ -249,6 +250,18 @@ def predict(req: PredictRequest) -> PredictResponse:
             pipe=pipe,
             schema=req.label_schema,
         )
+
+    # Card 4.1: log this call so it becomes part of the "current" window the drift job
+    # compares against the training distribution. Runs after the response is sent —
+    # never adds latency to, or can fail, the prediction itself.
+    background_tasks.add_task(
+        log_prediction,
+        text=req.text,
+        predicted_label=p.label_display,
+        confidence=max(p.probs.values()),
+        model_version=p.model_id,
+        schema=req.label_schema,
+    )
 
     return PredictResponse(
         model_id=p.model_id,
