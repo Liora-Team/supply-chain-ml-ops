@@ -17,6 +17,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.auth import enforce_rate_limit, verify_token
+from monitoring.drift_metrics import register as register_drift_metrics
 from monitoring.request_store import log_prediction
 from src import registry
 from src.inference import predict_classical, predict_loaded_classical
@@ -40,8 +41,10 @@ app = FastAPI(
 )
 
 # Prometheus /metrics with the instrumentator's default HTTP metrics
-# (http_requests_total, http_request_duration_seconds, request/response sizes).
+# (http_requests_total, http_request_duration_seconds, request/response sizes),
+# plus Card 4.1's drift_detected gauge (read fresh from drift_status.json per scrape).
 Instrumentator().instrument(app).expose(app, tags=["monitoring"])
+register_drift_metrics()
 
 # Auth/rate-limit error shapes shared by every protected route (see api/auth.py).
 AUTH_RESPONSES: dict[int | str, dict] = {
