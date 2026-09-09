@@ -95,8 +95,12 @@ def run_drift_report(
     if len(current) < min_rows:
         # Too little traffic to say anything — neither a drift verdict nor a false
         # "all clear". 4.2/4.4 should treat this status as "skip", not as "no drift".
-        entry = {**base_entry, "status": "insufficient_data", "drift_detected": False,
-                  "report_path": None}
+        entry = {
+            **base_entry,
+            "status": "insufficient_data",
+            "drift_detected": False,
+            "report_path": None,
+        }
         _update_status_file(status_path, schema, entry)
         return entry
 
