@@ -24,7 +24,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # Overridable for tests / alternate deployments; defaults to the shared compose mount.
-DB_PATH = Path(os.environ.get("MONITORING_DB_PATH", "monitoring/request_store.db"))
+# `os.environ.get(...) or default`, not `.get(key, default)`: a var that's *set but blank*
+# (e.g. a `.env` copied from .env.example with `MONITORING_DB_PATH=`) must fall through to
+# the default too, not resolve to Path("") -> the current working directory.
+DB_PATH = Path(os.environ.get("MONITORING_DB_PATH") or "monitoring/request_store.db")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS predictions (

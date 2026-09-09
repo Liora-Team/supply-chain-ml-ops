@@ -33,12 +33,13 @@ from monitoring.datasets import load_current, load_reference
 # (see module docstring) — DataSummaryPreset still runs on the full frame below.
 DRIFT_COLUMNS = ["text_length", "word_count"]
 
-DEFAULT_STATUS_PATH = Path(os.environ.get("DRIFT_STATUS_PATH", "monitoring/drift_status.json"))
-DEFAULT_REPORTS_DIR = Path(os.environ.get("DRIFT_REPORTS_DIR", "monitoring/reports"))
+DEFAULT_STATUS_PATH = Path(os.environ.get("DRIFT_STATUS_PATH") or "monitoring/drift_status.json")
+DEFAULT_REPORTS_DIR = Path(os.environ.get("DRIFT_REPORTS_DIR") or "monitoring/reports")
 
 
 def _env_int(name: str, default: int) -> int:
-    return int(os.environ.get(name, default))
+    value = os.environ.get(name)
+    return int(value) if value else default
 
 
 def _update_status_file(path: Path, schema: str, entry: dict[str, Any]) -> None:

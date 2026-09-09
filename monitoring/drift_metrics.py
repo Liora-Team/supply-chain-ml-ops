@@ -21,7 +21,7 @@ from prometheus_client import REGISTRY
 from prometheus_client.core import GaugeMetricFamily
 from prometheus_client.registry import Collector
 
-STATUS_PATH = Path(os.environ.get("DRIFT_STATUS_PATH", "monitoring/drift_status.json"))
+STATUS_PATH = Path(os.environ.get("DRIFT_STATUS_PATH") or "monitoring/drift_status.json")
 
 METRIC_NAME = "drift_detected"
 METRIC_HELP = (

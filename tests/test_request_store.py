@@ -64,6 +64,17 @@ def test_get_recent_excludes_rows_outside_window(store):
     assert [r["text"] for r in rows] == ["fresh"]
 
 
+def test_blank_env_var_falls_back_to_default_not_empty_path(monkeypatch):
+    """A var that's *set but blank* (e.g. a sourced `.env` with `MONITORING_DB_PATH=`)
+    must fall through to the default, not resolve to Path("") == the cwd."""
+    monkeypatch.setenv("MONITORING_DB_PATH", "")
+    import monitoring.request_store as request_store
+
+    importlib.reload(request_store)
+
+    assert str(request_store.DB_PATH) == "monitoring/request_store.db"
+
+
 def test_purge_older_than_removes_only_stale_rows(store):
     stale_ts = (datetime.now(UTC) - timedelta(days=10)).isoformat()
     store.log_prediction("old", "positive", 0.9, "m1", schema="3-class", timestamp=stale_ts)

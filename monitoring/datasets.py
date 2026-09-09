@@ -21,7 +21,8 @@ import pandas as pd
 from monitoring.request_store import get_recent
 
 # Overridable for tests; defaults to the repo's canonical DVC-tracked location.
-REFERENCE_DIR = Path(os.environ.get("REFERENCE_DATA_DIR", "data/processed"))
+# See monitoring/request_store.py's DB_PATH comment for why `or` (not `.get(k, default)`).
+REFERENCE_DIR = Path(os.environ.get("REFERENCE_DATA_DIR") or "data/processed")
 TRAIN_FILE = "train.csv"
 
 FEATURE_COLUMNS = ["text", "text_length", "word_count"]
