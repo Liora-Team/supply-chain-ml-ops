@@ -60,3 +60,9 @@ Thumbs.db
 k8s/secrets.yaml
 *.crt
 .tmp/
+# Phase 4 monitoring runtime artifacts
+monitoring/*.db
+monitoring/*.sqlite
+monitoring/*.sqlite3
+monitoring/drift_status.json
+monitoring/reports/
