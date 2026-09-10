@@ -20,8 +20,9 @@ jobs:
         run: uv python install 3.12
 
       # Added '--group track' as requested in PR #32 review.
-      - name: Sync env (core + api + dev + track, torch-free)
-        run: uv sync --frozen --group track
+      # Added '--group orchestration' for Card 4.1
+      - name: Sync env (core + api + dev + track + orchestration, torch-free)
+        run: uv sync --frozen --group track --group orchestration
 
       - name: Lint + format check
         run: |
