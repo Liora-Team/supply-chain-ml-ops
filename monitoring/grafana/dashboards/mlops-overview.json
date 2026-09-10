@@ -85,7 +85,8 @@
         }
       ],
       "title": "Prediction Latency",
-      "type": "timeseries"
+      "type": "timeseries",
+      "description": "p50/p95 latency for /predict. With the current histogram buckets (0.1, 0.5, 1, +Inf), p95 is capped at 1 second."
     },
     {
       "datasource": {
@@ -116,7 +117,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(http_requests_total{handler=\"/predict\",status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total{handler=\"/predict\"}[5m])), 1)",
+          "expr": "sum(rate(http_requests_total{handler=\"/predict\",status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total{handler=\"/predict\"}[5m])), 0.001)",
           "legendFormat": "5xx error rate",
           "refId": "A"
         }
@@ -247,56 +248,56 @@
       "type": "timeseries"
     },
     {
-  "datasource": {
-    "type": "prometheus",
-    "uid": "prometheus"
-  },
-  "fieldConfig": {
-    "defaults": {
-      "mappings": [
-        {
-          "options": {
-            "0": {
-              "text": "No drift"
-            },
-            "1": {
-              "text": "Drift detected"
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "text": "No drift"
+                },
+                "1": {
+                  "text": "Drift detected"
+                }
+              },
+              "type": "value"
             }
-          },
-          "type": "value"
+          ],
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "id": 7,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "expr": "drift_detected",
+          "legendFormat": "{{schema}}",
+          "refId": "A"
         }
       ],
-      "min": 0,
-      "max": 1
-    },
-    "overrides": []
-  },
-  "gridPos": {
-    "h": 8,
-    "w": 12,
-    "x": 0,
-    "y": 24
-  },
-  "id": 7,
-  "options": {
-    "reduceOptions": {
-      "calcs": [
-        "lastNotNull"
-      ],
-      "fields": "",
-      "values": false
+      "title": "Drift Status",
+      "type": "stat"
     }
-  },
-  "targets": [
-    {
-      "expr": "drift_detected",
-      "legendFormat": "{{schema}}",
-      "refId": "A"
-    }
-  ],
-  "title": "Drift Status",
-  "type": "stat"
-}
   ],
   "refresh": "15s",
   "schemaVersion": 42,

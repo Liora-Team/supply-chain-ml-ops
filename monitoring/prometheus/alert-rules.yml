@@ -19,13 +19,13 @@ groups:
             sum by (le) (
               rate(http_request_duration_seconds_bucket{handler="/predict"}[5m])
             )
-          ) > 1
+          ) >= 1
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: Prediction latency is high
-          description: The p95 latency for /predict has been above 1 second for 5 minutes.
+          description: The p95 latency for /predict has been at or above 1 second for 5 minutes.
 
       - alert: ApiHighErrorRate
         expr: |

@@ -59,6 +59,7 @@ jobs:
   build-images:
     runs-on: ubuntu-latest
     env:
+      GRAFANA_ADMIN_PASSWORD: ci-grafana-password
       JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY || 'ci-test-secret-key' }}
     steps:
       - uses: actions/checkout@v4

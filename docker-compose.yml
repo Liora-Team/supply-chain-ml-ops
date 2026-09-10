@@ -41,8 +41,6 @@ services:
       MLFLOW_TRACKING_PASSWORD: "${MLFLOW_TRACKING_PASSWORD:-}"
       JWT_SECRET_KEY: "${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set}"
       RATE_LIMIT_PER_MINUTE: "${RATE_LIMIT_PER_MINUTE:-60}"
-    volumes:
-      - ./monitoring:/app/monitoring
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 30s
@@ -51,9 +49,7 @@ services:
       start_period: 25s
     restart: unless-stopped
 
-  # One-shot training job — `docker compose --profile train up training`.
-  # Rebuilds the served pipelines; a plain `docker compose up` never retrains.
-    # Metrics collection for the inference API.
+  # Metrics collection for the inference API.
   prometheus:
     image: prom/prometheus:v3.14.0
     container_name: sc-mlops-prometheus
@@ -118,6 +114,9 @@ services:
       retries: 3
       start_period: 20s
     restart: unless-stopped
+
+  # One-shot training job - `docker compose --profile train up training`.
+  # Rebuilds the served pipelines; a plain `docker compose up` never retrains.
   training:
     profiles: ["train"]
     build:
@@ -238,7 +237,6 @@ services:
       - ./models:/app/models # training inputs and local model artifacts
       - ./.dvc:/app/.dvc # shared DVC config + cache: in-container hashes valid on host
       - ./.git:/app/.git:ro # DVC refuses to run outside a git repo; read-only, never commits
-      - ./monitoring:/app/monitoring
     restart: unless-stopped
 
 volumes:
