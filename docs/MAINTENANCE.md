@@ -141,3 +141,65 @@ model version, timestamp — no client identity) in a SQLite file under the shar
 (`scripts/run_drift_check.py`), not on a separate timer — see
 [ADR 005](adr/005-drift-signal-format.md) for the store's format and the k8s
 multi-replica caveat.
+
+
+## Automated Retraining (Card 4.4)
+
+### What triggers retraining
+The `auto_retrain_pipeline` DAG polls every `RETRAIN_POLL_MINUTES` and reads the drift flag from
+`DRIFT_STATUS_PATH` (defaults to `monitoring/drift_status.json` if unset). It triggers a retrain
+only when a watched schema reports `drift_detected: true` with `status: "ok"`, the event is new
+(not already handled), the report is not stale, and no cooldown is active.
+
+### Drift-status contract (read-only for 4.4)
+Per-schema keys: `status`, `drift_detected`, `timestamp`, `n_rows`,
+`window_start`, `window_end`, `report_path`. `status: "insufficient_data"` never
+triggers. Card 4.4 never writes this file (see ADR 005/006).
+
+### Cooldown policy
+`RETRAIN_COOLDOWN_HOURS` (default 24). A successful trigger writes
+`cooldown_until` into `monitoring/retrain_state.json` on the shared mount, so it
+survives Airflow/API/container restarts. The same drift event is deduplicated
+via `last_handled_drift_ts`.
+
+### Category-slice rotation (Option 3)
+`RETRAIN_CATEGORIES` (ordered list). A persistent `slice_cursor` advances each
+retrain and wraps at the end. It drives the data pipeline with a real category
+slice (new `category` param).
+
+**Important:** to preserve promotion-gate comparability (Card 3.2), category slices must extend
+the training set while keeping the evaluation test set fixed.
+
+### Inspect retraining state
+Windows: `type monitoring\retrain_state.json`  
+macOS/Linux: `cat monitoring/retrain_state.json`
+
+### Manual trigger / replay
+Airflow UI -> `auto_retrain_pipeline` -> Trigger. To seed a signal without
+Card 4.1: `python scripts/seed_drift_status.py --drift`.
+
+### How promotion works
+The DAG triggers `data_pipeline` (next slice) then `model_pipeline`. The Card 3.2
+gate (`src/promotion.py`, strict candidate > production macro-F1) is the SOLE
+promotion authority. Card 4.4 never promotes.
+
+### How the API picks up the promoted model
+The API caches the production pipeline (`@lru_cache`). After a promotion, run
+`docker compose restart api` to serve the new model **without rebuilding the
+image**.
+
+### Persistent drift after cooldown
+If drift remains `true` after the cooldown window expires (i.e., a fresh drift report arrives
+after `cooldown_until`), the loop logs `[PERSISTENT-DRIFT]` and sets
+`persistent_drift_blocked=true` in `monitoring/retrain_state.json` to prevent a tight retraining loop.
+This requires operator attention.
+
+To resume automated retraining after investigation, edit `monitoring/retrain_state.json` and set
+`persistent_drift_blocked` to `false` (or remove the key).
+
+### Known limitations
+- Airflow is Linux-only (POSIX); the loop runs in the docker-compose airflow
+  container and is validated by CI on Ubuntu, not on native Windows.
+- Kubernetes 2-replica setup has no shared PVC for the SQLite request store
+  (Card 4.1) or the state file -> per-pod state (ADR 005). The demo runs on
+  docker-compose where the `./monitoring` mount is shared.
