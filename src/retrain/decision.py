@@ -185,7 +185,6 @@ def evaluate_schema(
             reason="drift event already handled",
         )
 
-
     cooldown_until = _parse_iso(state_entry.get("cooldown_until"))
     if cooldown_until is not None:
         if now < cooldown_until:
@@ -205,7 +204,9 @@ def evaluate_schema(
             schema=schema,
             drift_timestamp=drift_ts_raw,
             persistent_drift=True,
-            reason="drift persisted after cooldown; automated retraining blocked until operator reset",
+            reason=(
+                "drift persisted after cooldown; automated retraining blocked until operator reset"
+            ),
         )
 
     cursor = int(state_entry.get("slice_cursor", 0))
