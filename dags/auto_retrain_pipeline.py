@@ -28,8 +28,14 @@ from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOpe
 from airflow.sdk import dag, task
 
 MONITORING_DIR = os.environ.get("MONITORING_DIR", "/app/monitoring")
-DRIFT_STATUS_PATH = f"{MONITORING_DIR}/drift_status.json"
-RETRAIN_STATE_PATH = f"{MONITORING_DIR}/retrain_state.json"
+DRIFT_STATUS_PATH = os.environ.get(
+    "DRIFT_STATUS_PATH",
+    f"{MONITORING_DIR}/drift_status.json",
+)
+RETRAIN_STATE_PATH = os.environ.get(
+    "RETRAIN_STATE_PATH",
+    f"{MONITORING_DIR}/retrain_state.json",
+)
 
 WATCHED_SCHEMAS = [
     s.strip() for s in os.environ.get("RETRAIN_SCHEMAS", "3-class").split(",") if s.strip()
@@ -97,11 +103,7 @@ def auto_retrain_pipeline():
             )
             print(f"[decide] schema={schema} action={d.action.value} reason={d.reason}")
             if d.persistent_drift:
-                print(
-                    f"[PERSISTENT-DRIFT] schema={schema}: drift still present but "
-                    f"suppressed by cooldown — retraining did notclear it, operator "
-                    f"attention needed. {d.reason}"
-                )
+                print(f"[PERSISTENT-DRIFT] schema={schema}: {d.reason}")
                 # Persist block flag so it survives scheduler restarts
                 if schema not in retrain_state or not isinstance(retrain_state[schema], dict):
                     retrain_state[schema] = {}
@@ -119,7 +121,7 @@ def auto_retrain_pipeline():
             print("[decide] persistent_drift_blocked flagged as True on disk.")
 
         if chosen is None:
-            raise AirflowSkipException("No actionable drift undercooldown/dedupe policy.")
+            raise AirflowSkipException("No actionable drift under cooldown/dedupe policy.")
 
         return {
             "schema": chosen.schema,

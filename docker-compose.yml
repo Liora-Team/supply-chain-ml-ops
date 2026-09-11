@@ -237,6 +237,15 @@ services:
       AWS_ACCESS_KEY_ID: "${DAGSHUB_TOKEN:-}"
       AWS_SECRET_ACCESS_KEY: "${DAGSHUB_TOKEN:-}"
       DVC_SITE_CACHE_DIR: /tmp/dvc-site-cache
+      
+      # --- Card 4.4: automated retraining loop configuration (must reach Airflow DAG runtime) ---
+      MONITORING_DIR: "${MONITORING_DIR:-/app/monitoring}"
+      DRIFT_STATUS_PATH: "${DRIFT_STATUS_PATH:-/app/monitoring/drift_status.json}"
+      RETRAIN_SCHEMAS: "${RETRAIN_SCHEMAS:-3-class}"
+      RETRAIN_CATEGORIES: "${RETRAIN_CATEGORIES:-Education & Training,Sports,Shopping & Fashion,Health & Medical}"
+      RETRAIN_COOLDOWN_HOURS: "${RETRAIN_COOLDOWN_HOURS:-24}"
+      RETRAIN_STALE_AFTER_HOURS: "${RETRAIN_STALE_AFTER_HOURS:-48}"
+      RETRAIN_POLL_MINUTES: "${RETRAIN_POLL_MINUTES:-15}"
     volumes:
       - airflow_home:/opt/airflow # SQLite metadata + logs survive restarts
       - ./dags:/app/dags # edit DAGs without rebuilding
