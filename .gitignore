@@ -60,10 +60,3 @@ Thumbs.db
 k8s/secrets.yaml
 *.crt
 .tmp/
-
-
-# Card 4.4 + Card 4.1 monitoring runtime artifacts (test/generated, owned by #38)
-monitoring/drift_status.json
-monitoring/retrain_state.json
-monitoring/reports/
-monitoring/*.db
