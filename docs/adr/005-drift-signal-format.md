@@ -6,7 +6,7 @@ Grafana alerting, Dilshana) reads it to fire an alert, and 4.4 (automated retrai
 reads it to trigger the orchestrator. Building against three different open questions
 (flag format, request-store backend, comparison window) without agreement would force 4.2
 and 4.4 to guess at an interface that might change. This ADR closes those three open
-questions from `docs/TODO.md` Card 4.1, agreed with Luc and Dilshana on [дата].
+questions from `docs/TODO.md` Card 4.1, agreed with Luc and Dilshana on 2026-09-07.
 
 **Decision:**
 

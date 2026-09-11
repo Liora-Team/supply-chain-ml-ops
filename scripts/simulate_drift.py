@@ -19,7 +19,7 @@ Usage
     # immediately run the drift check (rather than waiting for the schedule) and
     # print the result.
     export JWT_SECRET_KEY=dev-test-key   # must match the running API's secret
-    uv run --group data python scripts/simulate_drift.py \\
+    uv run --group data --group orchestration python scripts/simulate_drift.py \\
         --category Electronics --n 150 --run-drift-check
 
 No new dependencies: HTTP calls use the stdlib (`urllib.request`), matching Option 3's
