@@ -18,6 +18,8 @@ services:
         condition: service_healthy
       mlflow:
         condition: service_started
+      grafana:
+        condition: service_healthy
     restart: unless-stopped
 
   api:
@@ -54,7 +56,73 @@ services:
       start_period: 25s
     restart: unless-stopped
 
-  # One-shot training job — `docker compose --profile train up training`.
+  # Metrics collection for the inference API.
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    container_name: sc-mlops-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - prometheus_data:/prometheus
+    expose:
+      - "9090"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--spider",
+          "-q",
+          "http://localhost:9090/-/healthy",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Provisioned monitoring UI, available only through nginx at /grafana/.
+  grafana:
+    image: grafana/grafana:13.2.1
+    container_name: sc-mlops-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "${GRAFANA_ROOT_URL:-https://localhost/grafana/}"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    expose:
+      - "3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--spider",
+          "-q",
+          "http://localhost:3000/api/health",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  # One-shot training job - `docker compose --profile train up training`.
   # Rebuilds the served pipelines; a plain `docker compose up` never retrains.
   training:
     profiles: ["train"]
@@ -182,3 +250,5 @@ services:
 volumes:
   mlruns:
   airflow_home:
+  prometheus_data:
+  grafana_data:

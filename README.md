@@ -411,9 +411,11 @@ localhost:80 → :443 ─ proxy (nginx, TLS)
 
 | Service | Runs | Notes |
 |---------|------|-------|
-| `proxy` | always | nginx, config in `deploy/nginx/nginx.conf`. Routes `/` → api, `/mlflow/` → mlflow. |
+| `proxy` | always | nginx, config in `deploy/nginx/nginx.conf`. Routes `/` -> api, `/mlflow/` -> mlflow, `/grafana/` -> grafana. |
 | `api` | always | Torch-free classical API (Dockerfile `api` target). Scale with `docker compose up -d --scale api=N` (then `docker compose restart proxy` to refresh its upstream pool). |
 | `mlflow` | always | Local tracking UI for offline dev on a named volume — team truth lives on DagsHub. |
+| `prometheus` | always | Scrapes the API's internal `api:8000/metrics` endpoint and loads rules from `monitoring/prometheus/alert-rules.yml`. |
+| `grafana` | always | Monitoring UI at `/grafana/`; datasource and dashboard provisioning live under `monitoring/grafana/`. |
 | `training` | `--profile train` | One-shot pipeline rebuild (`training` target) over bind-mounted `data/` + `models/`. A plain `docker compose up` never retrains. |
 | `bert` | `--profile bert` | DistilBERT torch image (`bert` target); weights via `DISTILBERT_*` ([CONTRIBUTING.md §7](CONTRIBUTING.md#7-data--model-handling)). |
 | `airflow` | `--profile airflow` | Orchestrator (`airflow` target): one `airflow standalone` container running the Card 3.1/3.2 DAGs. UI on **127.0.0.1:8080** — the one deliberate, localhost-only exception to proxy-only entry ([ADR 002](docs/adr/002-airflow-orchestration.md)). |
@@ -430,6 +432,15 @@ MLFLOW_TRACKING_URI=http://mlflow:5000/mlflow \
   DOCKER_UID=$(id -u) DOCKER_GID=$(id -g) docker compose --profile train up --build training
 
 docker compose --profile bert up -d --build bert      # DistilBERT service (heavy: torch)
+
+# Monitoring stack (Card 4.2).
+# GRAFANA_ADMIN_PASSWORD must be set before compose starts.
+docker compose up -d prometheus grafana
+open https://localhost/grafana/
+
+# Prometheus config + alert rules: monitoring/prometheus/
+# Grafana datasource/dashboard provisioning: monitoring/grafana/
+# Drift panel and alert use Card 4.1's agreed drift_detected metric.
 
 # Orchestrated data pipeline (Card 3.1). Needs DAGSHUB_TOKEN in .env for the dvc push.
 # On Linux add DOCKER_UID=$(id -u) DOCKER_GID=$(id -g), same as training above.
