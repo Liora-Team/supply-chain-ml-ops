@@ -185,14 +185,27 @@ def evaluate_schema(
             reason="drift event already handled",
         )
 
+
     cooldown_until = _parse_iso(state_entry.get("cooldown_until"))
-    if cooldown_until is not None and now < cooldown_until:
+    if cooldown_until is not None:
+        if now < cooldown_until:
+            # During cooldown: suppress retraining, but do NOT flag persistent drift.
+            return Decision(
+                Action.SKIP_COOLDOWN,
+                schema=schema,
+                drift_timestamp=drift_ts_raw,
+                persistent_drift=False,
+                reason=f"cooldown active until {cooldown_until.isoformat()}",
+            )
+
+        # Cooldown expired and drift is still true (fresh timestamp, not deduped above):
+        # this is persistent drift -> alert + block the loop (requires operator reset).
         return Decision(
             Action.SKIP_COOLDOWN,
             schema=schema,
             drift_timestamp=drift_ts_raw,
             persistent_drift=True,
-            reason=f"cooldown active until {cooldown_until.isoformat()}",
+            reason="drift persisted after cooldown; automated retraining blocked until operator reset",
         )
 
     cursor = int(state_entry.get("slice_cursor", 0))

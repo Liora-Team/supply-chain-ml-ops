@@ -106,7 +106,7 @@ def test_same_event_already_handled_skips():
     assert _eval(_drift(ts=NOW), state).action is Action.SKIP_ALREADY_HANDLED
 
 
-def test_cooldown_active_blocks_and_flags_persistent():
+def test_cooldown_active_suppresses_without_persistent_flag():
     state = {
         "3-class": {
             "last_handled_drift_ts": (NOW - timedelta(hours=1)).isoformat(),
@@ -115,10 +115,10 @@ def test_cooldown_active_blocks_and_flags_persistent():
     }
     d = _eval(_drift(ts=NOW), state)
     assert d.action is Action.SKIP_COOLDOWN
-    assert d.persistent_drift is True
+    assert d.persistent_drift is False
 
 
-def test_cooldown_expired_allows_new_trigger():
+def test_cooldown_expired_with_fresh_drift_blocks_as_persistent():
     state = {
         "3-class": {
             "last_handled_drift_ts": (NOW - timedelta(hours=30)).isoformat(),
@@ -127,9 +127,10 @@ def test_cooldown_expired_allows_new_trigger():
         }
     }
     d = _eval(_drift(ts=NOW), state)
-    assert d.action is Action.TRIGGER
-    assert d.category == "clothing"
-    assert d.slice_cursor == 1
+    assert d.action is Action.SKIP_COOLDOWN
+    assert d.persistent_drift is True
+    assert d.category is None
+    assert d.slice_cursor is None
 
 
 def test_cooldown_expired_but_same_event_still_skips():
