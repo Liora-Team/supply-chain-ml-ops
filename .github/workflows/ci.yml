@@ -20,8 +20,9 @@ jobs:
         run: uv python install 3.12
 
       # Added '--group track' as requested in PR #32 review.
-      - name: Sync env (core + api + dev + track, torch-free)
-        run: uv sync --frozen --group track
+      # Added '--group orchestration' for Card 4.1
+      - name: Sync env (core + api + dev + track + orchestration, torch-free)
+        run: uv sync --frozen --group track --group orchestration
 
       - name: Lint + format check
         run: |
@@ -43,14 +44,11 @@ jobs:
         env:
           JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY || 'ci-test-secret-key' }}
 
-      # tests/test_dag.py importorskips airflow, which the sync above doesn't install, so
-      # without this step a broken DAG merges green (same hole build-images closed for the
-      # Dockerfile targets). Separate step so the sync above stays small and a DAG failure
-      # is legible on its own line rather than as a skip nobody reads.
+      # tests/test_dag.py needs apache-airflow, already installed by the main sync's
+      # --group orchestration above. Kept as a separate step so a DAG failure is legible
+      # on its own line rather than folded into the main "Run tests" step.
       - name: DAG parse tests (Card 3.1)
-        run: |
-          uv sync --frozen --group track --group orchestration
-          uv run pytest tests/test_dag.py
+        run: uv run pytest tests/test_dag.py
 
   # The test job never builds an image, so a broken Dockerfile target used to reach dev with
   # CI green (Card 2.4-B review). These two targets are torch-free and build in a few minutes;
@@ -59,7 +57,7 @@ jobs:
   build-images:
     runs-on: ubuntu-latest
     env:
-      GRAFANA_ADMIN_PASSWORD: ci-grafana-password
+      GRAFANA_ADMIN_PASSWORD: ci-grafana-password # pragma: allowlist secret
       JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY || 'ci-test-secret-key' }}
     steps:
       - uses: actions/checkout@v4

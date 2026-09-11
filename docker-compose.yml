@@ -31,6 +31,13 @@ services:
     # behind the proxy. Not published — reachable only through nginx.
     expose:
       - "8000"
+      # Card 4.1: shared with `airflow` (below) so the drift job can read the SQLite
+      # request store and write drift_status.json without an HTTP round trip. Both
+      # images run as fixed UID 10001 (Dockerfile `useradd --uid 10001`), matching
+      # airflow's default DOCKER_UID — if you override DOCKER_UID for `airflow` on
+      # Linux, re-chown ./monitoring on the host or this mount's ownership mismatches.
+    volumes:
+      - ./monitoring:/app/monitoring
     environment:
       # Point these at an HF hub id or mounted path to enable the DistilBERT path (Phase 2).
       DISTILBERT_3CLASS: "${DISTILBERT_3CLASS:-}"
@@ -237,6 +244,7 @@ services:
       - ./models:/app/models # training inputs and local model artifacts
       - ./.dvc:/app/.dvc # shared DVC config + cache: in-container hashes valid on host
       - ./.git:/app/.git:ro # DVC refuses to run outside a git repo; read-only, never commits
+      - ./monitoring:/app/monitoring # Card 4.1: read request_store.db, write drift_status.json
     restart: unless-stopped
 
 volumes:
