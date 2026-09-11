@@ -72,7 +72,7 @@ def test_blank_env_var_falls_back_to_default_not_empty_path(monkeypatch):
 
     importlib.reload(request_store)
 
-    assert str(request_store.DB_PATH) == "monitoring/request_store.db"
+    assert request_store.DB_PATH.as_posix() == "monitoring/request_store.db"
 
 
 def test_purge_older_than_removes_only_stale_rows(store):
