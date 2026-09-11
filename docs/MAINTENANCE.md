@@ -134,6 +134,10 @@ collects no user PII**: `/predict` takes raw text and returns a rating, and requ
 authenticated with short-lived JWTs identifying a client, not a person
 ([ADR 003](adr/003-jwt-auth-and-self-signed-tls.md)).
 
-Card 4.1 will start **storing `/predict` requests** for monitoring. When that lands,
-this section must gain a retention/cleanup note (how long stored requests are kept and
-how they are purged) — tracked in the Card 4.1 acceptance criteria.
+Card 4.1 stores **`/predict` requests** for monitoring (text, predicted label, confidence,
+model version, timestamp — no client identity) in a SQLite file under the shared
+`./monitoring` compose mount. Retention: rows older than `REQUEST_STORE_RETENTION_DAYS`
+(default 30) are purged automatically at the end of every scheduled drift-check run
+(`scripts/run_drift_check.py`), not on a separate timer — see
+[ADR 005](adr/005-drift-signal-format.md) for the store's format and the k8s
+multi-replica caveat.

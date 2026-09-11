@@ -54,6 +54,7 @@ RUN uv run --no-sync python -c "import nltk; [nltk.download(p, quiet=True, downl
 COPY --chown=app:app src ./src
 COPY --chown=app:app api ./api
 COPY --chown=app:app models ./models
+COPY --chown=app:app monitoring ./monitoring
 USER app
 
 EXPOSE 8000
@@ -83,6 +84,7 @@ RUN mkdir -p /opt/airflow && chmod 0777 /opt/airflow
 COPY --chown=app:app src ./src
 COPY --chown=app:app scripts ./scripts
 COPY --chown=app:app dags ./dags
+COPY --chown=app:app monitoring ./monitoring
 USER app
 
 EXPOSE 8080
@@ -103,6 +105,7 @@ RUN uv run --no-sync python -c "import nltk; [nltk.download(p, quiet=True, downl
 COPY --chown=app:app src ./src
 COPY --chown=app:app api ./api
 COPY --chown=app:app models ./models
+COPY --chown=app:app monitoring ./monitoring
 USER app
 
 EXPOSE 8000
