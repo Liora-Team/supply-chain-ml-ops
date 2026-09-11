@@ -54,8 +54,10 @@ def test_split_and_write_writes_both_csvs(tmp_path, raw_df):
 def test_main_cli_flags_reach_the_step_functions(monkeypatch, tmp_path, raw_df):
     seen: dict = {}
 
-    def fake_load_raw(sample=0):
+    # Card 4.4: fake_load_raw now accepts the new optional `category` flag.
+    def fake_load_raw(sample=0, category=None):
         seen["sample"] = sample
+        seen["category"] = category
         return raw_df
 
     def fake_split_and_write(df, *, test_size=0.2, seed=42):
@@ -65,9 +67,21 @@ def test_main_cli_flags_reach_the_step_functions(monkeypatch, tmp_path, raw_df):
     monkeypatch.setattr("scripts.get_data.load_raw", fake_load_raw)
     monkeypatch.setattr("scripts.get_data.split_and_write", fake_split_and_write)
     monkeypatch.setattr(
-        "sys.argv", ["get_data.py", "--sample", "500", "--test-size", "0.3", "--seed", "7"]
+        "sys.argv",
+        [
+            "get_data.py",
+            "--sample",
+            "500",
+            "--category",
+            "Sports",  # Card 4.4: verify the new CLI flag reaches load_raw
+            "--test-size",
+            "0.3",
+            "--seed",
+            "7",
+        ],
     )
 
     main()
 
-    assert seen == {"sample": 500, "test_size": 0.3, "seed": 7}
+    # Card 4.4: `category` is now part of the captured flags.
+    assert seen == {"sample": 500, "category": "Sports", "test_size": 0.3, "seed": 7}

@@ -39,8 +39,13 @@ DATASET_ID = "Kerassy/trustpilot-reviews-123k"
 OUT_DIR = ROOT / "data" / "processed"
 
 
-def load_raw(sample: int = 0) -> pd.DataFrame:
-    """Download the raw dataset and return the cleaned (review, stars) frame."""
+def load_raw(sample: int = 0, category: str | None = None) -> pd.DataFrame:
+    """Download the raw dataset and return the cleaned (review, stars) frame.
+
+    Card 4.4 (Option 3) may pass `category` to replay one held-out category
+    slice, so each retrain genuinely sees new data. When `category` is None the
+    behaviour is unchanged (full dataset).
+    """
     try:
         from datasets import load_dataset
     except ImportError as e:  # pragma: no cover - guidance path
@@ -52,6 +57,17 @@ def load_raw(sample: int = 0) -> pd.DataFrame:
     print(f"Loading {DATASET_ID} …")
     ds = load_dataset(DATASET_ID, split="train")
     df = ds.to_pandas()
+
+    if category is not None:
+        if "category" not in df.columns:
+            raise SystemExit(
+                f"Cannot filter by category {category!r}: dataset has no 'category' column."
+            )
+        df = df[df["category"] == category].copy()
+        print(f"  Filtered to category {category!r}: {len(df):,} rows")
+        if df.empty:
+            raise SystemExit(f"Category {category!r} matched 0 rows; check the category name.")
+
     if sample:
         df = df.head(sample).copy()
     print(f"  {len(df):,} rows, columns: {list(df.columns)}")
@@ -105,11 +121,17 @@ def split_and_write(
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--sample", type=int, default=0, help="Use only the first N rows (0 = all).")
+    ap.add_argument(
+        "--category",
+        type=str,
+        default=None,
+        help="Train on a single category slice (Card 4.4 Option 3). None = full dataset.",
+    )
     ap.add_argument("--test-size", type=float, default=0.2, help="Test split fraction.")
     ap.add_argument("--seed", type=int, default=42, help="Random seed for the split.")
     args = ap.parse_args()
 
-    df = preprocess(load_raw(sample=args.sample))
+    df = preprocess(load_raw(sample=args.sample, category=args.category))
     split_and_write(df, test_size=args.test_size, seed=args.seed)
 
 

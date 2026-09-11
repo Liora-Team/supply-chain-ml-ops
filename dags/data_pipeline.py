@@ -38,7 +38,7 @@ default_args = {
     catchup=False,
     default_args=default_args,
     tags=["data", "card-3.1"],
-    params={"sample": 0},  # 0 = full dataset; set e.g. 500 in the trigger form for a smoke run
+    params={"sample": 0, "category": None},  # category: Card 4.4 Option 3 slice replay
 )
 def data_pipeline():
     # Heavy imports live inside the task bodies so the DAG processor parses this file
@@ -50,7 +50,10 @@ def data_pipeline():
 
         from scripts.get_data import load_raw
 
-        df = load_raw(sample=int(context["params"]["sample"]))
+        df = load_raw(
+            sample=int(context["params"]["sample"]),
+            category=context["params"].get("category"),
+        )
         Path(RAW_PATH).parent.mkdir(parents=True, exist_ok=True)
         df.to_parquet(RAW_PATH)
         return RAW_PATH  # XCom carries only small paths, never DataFrames
