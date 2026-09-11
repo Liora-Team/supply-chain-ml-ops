@@ -24,7 +24,7 @@ from __future__ import annotations
 import os
 from datetime import timedelta
 
-from airflow.operators.trigger_dagrun import TriggerDagRunOperator
+from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.sdk import dag, task
 
 MONITORING_DIR = os.environ.get("MONITORING_DIR", "/app/monitoring")
@@ -138,7 +138,10 @@ def auto_retrain_pipeline():
     trigger_data = TriggerDagRunOperator(
         task_id="trigger_data_pipeline",
         trigger_dag_id="data_pipeline",
-        conf={"category": "{{ ti.xcom_pull(task_ids='record_state')['category'] }}"},
+        conf={
+            "sample": 0,  # explicit: data_pipeline reads params["sample"] directly
+            "category": "{{ ti.xcom_pull(task_ids='record_state')['category'] }}",
+        },
         wait_for_completion=True,
         poke_interval=30,
         reset_dag_run=True,
@@ -147,7 +150,10 @@ def auto_retrain_pipeline():
     trigger_model = TriggerDagRunOperator(
         task_id="trigger_model_pipeline",
         trigger_dag_id="model_pipeline",
-        conf={"schema": "{{ ti.xcom_pull(task_ids='record_state')['schema'] }}"},
+        conf={
+            "schema": "{{ ti.xcom_pull(task_ids='record_state')['schema'] }}",
+            "algorithm": "LogReg",  # explicit: model_pipeline reads params["algorithm"] directly
+        },
         wait_for_completion=True,
         poke_interval=30,
         reset_dag_run=True,
