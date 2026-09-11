@@ -118,6 +118,58 @@ def split_and_write(
     return train_path, test_path
 
 
+def append_to_train_only(
+    df: pd.DataFrame,
+    *,
+    out_dir: Path = OUT_DIR,
+    train_name: str = "train.csv",
+    test_name: str = "test.csv",
+    dedupe: bool = True,
+) -> Path:
+    """Append new rows to the existing training split while keeping the test split fixed.
+
+    Card 4.4 Option 3 category replay must preserve promotion-gate comparability (Card 3.2):
+    candidate and production must be evaluated on the same fixed test set.
+
+    Requires baseline {train.csv,test.csv} to already exist (via a prior full run or DVC pull).
+    """
+    import pandas as pd
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    train_path = out_dir / train_name
+    test_path = out_dir / test_name
+
+    if not train_path.exists() or not test_path.exists():
+        raise SystemExit(
+            "Incremental category replay requires an existing baseline split: "
+            f"{train_path} and {test_path}. "
+            "Run the data pipeline once without a category (full split), "
+            "or restore them via DVC (`make pull`)."
+        )
+
+    existing = pd.read_csv(train_path)
+
+    # Ensure column compatibility and stable order.
+    if set(existing.columns) != set(df.columns):
+        raise SystemExit(
+            "Column mismatch between baseline train.csv and incoming slice. "
+            f"baseline={list(existing.columns)} incoming={list(df.columns)}"
+        )
+
+    df_aligned = df[existing.columns]
+    combined = pd.concat([existing, df_aligned], ignore_index=True)
+
+    if dedupe:
+        combined = combined.drop_duplicates()
+
+    combined.to_csv(train_path, index=False)
+    print(
+        f"Appended {len(df_aligned):,} rows to {train_path} (total {len(combined):,}); "
+        f"kept {test_path} unchanged."
+    )
+    return train_path
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--sample", type=int, default=0, help="Use only the first N rows (0 = all).")
@@ -132,7 +184,11 @@ def main() -> None:
     args = ap.parse_args()
 
     df = preprocess(load_raw(sample=args.sample, category=args.category))
-    split_and_write(df, test_size=args.test_size, seed=args.seed)
+
+    if args.category is not None:
+        append_to_train_only(df, out_dir=OUT_DIR)
+    else:
+        split_and_write(df, test_size=args.test_size, seed=args.seed)
 
 
 if __name__ == "__main__":
