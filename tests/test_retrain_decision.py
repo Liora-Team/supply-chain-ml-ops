@@ -132,6 +132,35 @@ def test_cooldown_expired_allows_new_trigger():
     assert d.slice_cursor == 1
 
 
+def test_cooldown_expired_but_same_event_still_skips():
+    """Anti-loop: an expired cooldown must not re-handle an already-handled report.
+
+    A new retrain requires a *fresh* Card 4.1 report (new timestamp), so the
+    15-min poller cannot re-trigger on every tick once the cooldown closes.
+    This pins the guard order: dedupe is evaluated before the cooldown window.
+    """
+    state = {
+        "3-class": {
+            "last_handled_drift_ts": NOW.isoformat(),
+            "cooldown_until": (NOW - timedelta(hours=6)).isoformat(),
+            "slice_cursor": 2,
+        }
+    }
+    assert _eval(_drift(ts=NOW), state).action is Action.SKIP_ALREADY_HANDLED
+
+
+def test_persistent_drift_blocked_prevents_trigger():
+    """An operator/system block must prevent retraining until manually reset."""
+    state = {
+        "3-class": {
+            "persistent_drift_blocked": True,
+        }
+    }
+    d = _eval(_drift(ts=NOW), state)
+    assert d.action is Action.SKIP_COOLDOWN
+    assert d.persistent_drift is True
+
+
 def test_build_triggered_state_starts_cooldown_and_advances_cursor():
     new = build_triggered_state(
         "3-class",

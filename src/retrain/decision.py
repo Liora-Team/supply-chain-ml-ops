@@ -163,6 +163,20 @@ def evaluate_schema(
     if not isinstance(state_entry, dict):
         state_entry = {}
 
+    # If persistent drift previously blocked automated runs, keep suppressing
+    # and alerting until an operator manually resets the state file.
+    if state_entry.get("persistent_drift_blocked") is True:
+        return Decision(
+            Action.SKIP_COOLDOWN,
+            schema=schema,
+            drift_timestamp=drift_ts_raw,
+            persistent_drift=True,
+            reason=(
+                "persistent drift block is active (retraining did not clear drift); "
+                "operator attention required"
+            ),
+        )
+
     if state_entry.get("last_handled_drift_ts") == drift_ts_raw:
         return Decision(
             Action.SKIP_ALREADY_HANDLED,

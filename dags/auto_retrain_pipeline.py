@@ -74,6 +74,7 @@ def auto_retrain_pipeline():
     @task
     def decide(**context) -> dict:
         """Evaluate drift + cooldown per watched schema (first actionable wins)."""
+        import json
         from pathlib import Path
 
         from airflow.exceptions import AirflowSkipException
@@ -81,9 +82,10 @@ def auto_retrain_pipeline():
         from src.retrain.decision import Action, evaluate_schema, load_json
 
         drift_status = load_json(Path(DRIFT_STATUS_PATH))
-        retrain_state = load_json(Path(RETRAIN_STATE_PATH))
+        retrain_state = load_json(Path(RETRAIN_STATE_PATH)) or {}
 
         chosen = None
+        state_updated = False
         for schema in WATCHED_SCHEMAS:
             d = evaluate_schema(
                 schema,
@@ -97,14 +99,27 @@ def auto_retrain_pipeline():
             if d.persistent_drift:
                 print(
                     f"[PERSISTENT-DRIFT] schema={schema}: drift still present but "
-                    f"suppressed by cooldown — retraining did not clear it, operator "
+                    f"suppressed by cooldown — retraining did notclear it, operator "
                     f"attention needed. {d.reason}"
                 )
+                # Persist block flag so it survives scheduler restarts
+                if schema not in retrain_state or not isinstance(retrain_state[schema], dict):
+                    retrain_state[schema] = {}
+                if not retrain_state[schema].get("persistent_drift_blocked"):
+                    retrain_state[schema]["persistent_drift_blocked"] = True
+                    state_updated = True
+
             if d.action is Action.TRIGGER and chosen is None:
                 chosen = d
 
+        if state_updated:
+            state_path = Path(RETRAIN_STATE_PATH)
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            state_path.write_text(json.dumps(retrain_state, indent=2), encoding="utf-8")
+            print("[decide] persistent_drift_blocked flagged as True on disk.")
+
         if chosen is None:
-            raise AirflowSkipException("No actionable drift under cooldown/dedupe policy.")
+            raise AirflowSkipException("No actionable drift undercooldown/dedupe policy.")
 
         return {
             "schema": chosen.schema,
