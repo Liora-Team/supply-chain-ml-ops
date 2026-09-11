@@ -63,3 +63,23 @@ def test_model_pipeline_is_manual_only_with_retries_and_alerts(dagbag):
         assert task.retries == 2
         assert task.retry_delay == timedelta(minutes=2)
         assert [callback.__name__ for callback in task.on_failure_callback] == ["_alert"]
+
+
+def test_auto_retrain_pipeline_shape(dagbag):
+    dag = dagbag.dags.get("auto_retrain_pipeline")
+    assert dag is not None
+    assert {t.task_id for t in dag.tasks} == {
+        "decide",
+        "record_state",
+        "trigger_data_pipeline",
+        "trigger_model_pipeline",
+    }
+    assert dag.get_task("record_state").upstream_task_ids == {"decide"}
+    assert dag.get_task("trigger_data_pipeline").upstream_task_ids == {"record_state"}
+    assert dag.get_task("trigger_model_pipeline").upstream_task_ids == {"trigger_data_pipeline"}
+
+
+def test_auto_retrain_pipeline_is_scheduled_single_run(dagbag):
+    dag = dagbag.dags.get("auto_retrain_pipeline")
+    assert type(dag.timetable).__name__ != "NullTimetable"  # poller, not manual
+    assert dag.max_active_runs == 1
