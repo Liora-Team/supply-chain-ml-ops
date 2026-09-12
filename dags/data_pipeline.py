@@ -38,7 +38,7 @@ default_args = {
     catchup=False,
     default_args=default_args,
     tags=["data", "card-3.1"],
-    params={"sample": 0},  # 0 = full dataset; set e.g. 500 in the trigger form for a smoke run
+    params={"sample": 0, "category": None},  # category: Card 4.4 Option 3 slice replay
 )
 def data_pipeline():
     # Heavy imports live inside the task bodies so the DAG processor parses this file
@@ -50,20 +50,37 @@ def data_pipeline():
 
         from scripts.get_data import load_raw
 
-        df = load_raw(sample=int(context["params"]["sample"]))
+        df = load_raw(
+            sample=int(context["params"]["sample"]),
+            category=context["params"].get("category"),
+        )
         Path(RAW_PATH).parent.mkdir(parents=True, exist_ok=True)
         df.to_parquet(RAW_PATH)
         return RAW_PATH  # XCom carries only small paths, never DataFrames
 
     @task
-    def preprocess(raw_path: str) -> list[str]:
+    def preprocess(raw_path: str, **context) -> list[str]:
         import pandas as pd
 
         # aliased: an unaliased import would shadow this task's own name inside the body
-        from scripts.get_data import preprocess as preprocess_df
-        from scripts.get_data import split_and_write
+        from scripts.get_data import (
+            append_to_train_only,
+            split_and_write,
+        )
+        from scripts.get_data import (
+            preprocess as preprocess_df,
+        )
 
-        train_path, test_path = split_and_write(preprocess_df(pd.read_parquet(raw_path)))
+        category = context["params"].get("category")
+        df = preprocess_df(pd.read_parquet(raw_path))
+
+        # Card 4.4 Option 3: when replaying a category slice, keep test.csv fixed to preserve
+        # promotion-gate comparability (Card 3.2). Only train.csv is updated.
+        if category is not None:
+            train_path = append_to_train_only(df)
+            return [str(train_path)]
+
+        train_path, test_path = split_and_write(df)
         return [str(train_path), str(test_path)]
 
     @task.bash
