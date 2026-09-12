@@ -1,3 +1,4 @@
+# src/retrain/decision.py
 """Pure decision logic for the automated retraining loop (Card 4.4).
 
 Consumes the Card 4.1 drift contract (`monitoring/drift_status.json`, per-schema,
@@ -31,8 +32,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Verified top-volume categories from Kerassy/trustpilot-reviews-123k (each ~6k
-# rows, no comma in the name so the RETRAIN_CATEGORIES env list splits safely).
+# Verified top-volume categories from Kerassy/trustpilot-reviews-123k (~6k
+# rows each, no comma in the name so RETRAIN_CATEGORIES env list splits
+# safely).
 DEFAULT_CATEGORIES = [
     "Education & Training",
     "Sports",
@@ -119,28 +121,54 @@ def evaluate_schema(
 ) -> Decision:
     """Decide the action for one schema. Pure — no I/O, no Airflow.
 
-    Precedence (safest first): missing/malformed -> insufficient_data ->
-    no-drift -> stale -> already-handled -> cooldown -> TRIGGER.
+    Precedence (safest first):
+      missing/malformed -> insufficient_data -> no-drift -> stale ->
+      already-handled -> persistent-block -> cooldown -> TRIGGER.
+
+    Persistent-drift policy (Issue #23 / ADR 006 / MAINTENANCE):
+      - During active cooldown with a new drift timestamp:
+        SKIP_COOLDOWN, persistent_drift=False.
+        A new timestamp during the cooldown window is expected (Card 4.1
+        runs every 24 h; cooldown is also 24 h). Flagging it persistent
+        here would permanently disable the loop after the first retrain.
+      - persistent_drift_blocked flag set by the DAG (operator action
+        required): SKIP_COOLDOWN, persistent_drift=True.
+      - New drift episode after cooldown expires (drift cleared then
+        re-appeared): TRIGGER, persistent_drift=False. This is the
+        Day-0/Day-3/Day-30 scenario from PR #40 review.
     """
     now = now or _now()
 
     if drift_status is None:
         return Decision(
-            Action.SKIP_MISSING_STATUS, schema=schema, reason="drift_status.json missing"
+            Action.SKIP_MISSING_STATUS,
+            schema=schema,
+            reason="drift_status.json missing",
         )
 
     entry = drift_status.get(schema)
     if not isinstance(entry, dict):
         return Decision(
-            Action.SKIP_MALFORMED_STATUS, schema=schema, reason=f"no valid entry for {schema!r}"
+            Action.SKIP_MALFORMED_STATUS,
+            schema=schema,
+            reason=f"no valid entry for {schema!r}",
         )
 
-    # Card 4.1 writes drift_detected=False for insufficient_data too; check status first.
+    # Card 4.1 writes drift_detected=False for insufficient_data too;
+    # check status before drift_detected.
     if entry.get("status") == "insufficient_data":
-        return Decision(Action.SKIP_INSUFFICIENT_DATA, schema=schema, reason="insufficient_data")
+        return Decision(
+            Action.SKIP_INSUFFICIENT_DATA,
+            schema=schema,
+            reason="insufficient_data",
+        )
 
     if entry.get("drift_detected") is not True:
-        return Decision(Action.SKIP_NO_DRIFT, schema=schema, reason="drift_detected is not true")
+        return Decision(
+            Action.SKIP_NO_DRIFT,
+            schema=schema,
+            reason="drift_detected is not true",
+        )
 
     drift_ts_raw = entry.get("timestamp")
     drift_ts = _parse_iso(drift_ts_raw)
@@ -163,20 +191,9 @@ def evaluate_schema(
     if not isinstance(state_entry, dict):
         state_entry = {}
 
-    # If persistent drift previously blocked automated runs, keep suppressing
-    # and alerting until an operator manually resets the state file.
-    if state_entry.get("persistent_drift_blocked") is True:
-        return Decision(
-            Action.SKIP_COOLDOWN,
-            schema=schema,
-            drift_timestamp=drift_ts_raw,
-            persistent_drift=True,
-            reason=(
-                "persistent drift block is active (retraining did not clear drift); "
-                "operator attention required"
-            ),
-        )
-
+    # Deduplicate: same drift event already handled → skip regardless of
+    # cooldown state. This guard runs before the cooldown check so that
+    # an expired cooldown cannot re-trigger on the same drift timestamp.
     if state_entry.get("last_handled_drift_ts") == drift_ts_raw:
         return Decision(
             Action.SKIP_ALREADY_HANDLED,
@@ -185,30 +202,48 @@ def evaluate_schema(
             reason="drift event already handled",
         )
 
-    cooldown_until = _parse_iso(state_entry.get("cooldown_until"))
-    if cooldown_until is not None:
-        if now < cooldown_until:
-            # During cooldown: suppress retraining, but do NOT flag persistent drift.
-            return Decision(
-                Action.SKIP_COOLDOWN,
-                schema=schema,
-                drift_timestamp=drift_ts_raw,
-                persistent_drift=False,
-                reason=f"cooldown active until {cooldown_until.isoformat()}",
-            )
-
-        # Cooldown expired and drift is still true (fresh timestamp, not deduped above):
-        # this is persistent drift -> alert + block the loop (requires operator reset).
+    # Operator / persistent-drift block: set by the DAG when the
+    # persistent_drift flag is raised. Requires manual operator reset.
+    if state_entry.get("persistent_drift_blocked") is True:
         return Decision(
             Action.SKIP_COOLDOWN,
             schema=schema,
             drift_timestamp=drift_ts_raw,
             persistent_drift=True,
             reason=(
-                "drift persisted after cooldown; automated retraining blocked until operator reset"
+                "persistent drift block is active "
+                "(retraining did not clear drift); "
+                "operator attention required"
             ),
         )
 
+    # Cooldown window check.
+    cooldown_until = _parse_iso(state_entry.get("cooldown_until"))
+    if cooldown_until is not None and now < cooldown_until:
+        # BLOCKER FIX (PR #40 / Issue #23 / ADR 006):
+        # During active cooldown, suppress retraining but do NOT flag
+        # persistent drift. A new drift timestamp during the cooldown
+        # window is expected (Card 4.1 runs every 24 h; cooldown is also
+        # 24 h). Flagging it persistent here permanently disables the
+        # loop after the first retrain — the inverse of the policy.
+        return Decision(
+            Action.SKIP_COOLDOWN,
+            schema=schema,
+            drift_timestamp=drift_ts_raw,
+            persistent_drift=False,
+            reason=f"cooldown active until {cooldown_until.isoformat()}",
+        )
+
+    # Cooldown has expired (or no prior cooldown) AND this is a new drift
+    # timestamp (dedupe guard above confirmed it differs from the last
+    # handled one). This means either:
+    #   a) first-ever trigger for this schema (no prior state), or
+    #   b) drift cleared after the last retrain and has now re-appeared
+    #      with a new timestamp (Day-30 scenario from PR #40 review).
+    # Both cases are new episodes that must TRIGGER.
+    # The DAG is responsible for setting persistent_drift_blocked if it
+    # determines that retraining did not clear the drift (separate path
+    # via the decide task inspecting persistent_drift on a later tick).
     cursor = int(state_entry.get("slice_cursor", 0))
     category, _ = next_category(categories, cursor)
     return Decision(
@@ -224,23 +259,26 @@ def evaluate_schema(
 def build_triggered_state(
     schema: str,
     category: str,
-    slice_cursor: int,
-    drift_timestamp: str,
+    cursor: int,
+    drift_ts_raw: str,
     *,
     cooldown_hours: float,
     now: datetime | None = None,
 ) -> dict:
-    """Return the per-schema state to persist after a successful trigger.
+    """Build the state dict to persist after a retrain is triggered.
 
-    Starts the cooldown and advances the category cursor. Writing this BEFORE
-    triggering makes a retried scheduler run deduplicate the same drift event.
+    Advances the slice cursor and sets the cooldown window so the same
+    event cannot trigger a second retrain (dedupe + cooldown double-guard).
     """
     now = now or _now()
+    _, next_cursor = next_category([category], 0)  # advances by 1
     return {
-        "last_handled_drift_ts": drift_timestamp,
-        "cooldown_until": (now + timedelta(hours=cooldown_hours)).isoformat(),
-        "slice_cursor": slice_cursor + 1,
+        "last_handled_drift_ts": drift_ts_raw,
         "last_category_used": category,
+        "slice_cursor": cursor + 1,
+        "cooldown_until": (now + timedelta(hours=cooldown_hours)).isoformat(),
+        "triggered_at": now.isoformat(),
+        # Reset the persistent block on a new trigger so a later recovery
+        # is possible.
         "persistent_drift_blocked": False,
-        "last_triggered_at": now.isoformat(),
     }

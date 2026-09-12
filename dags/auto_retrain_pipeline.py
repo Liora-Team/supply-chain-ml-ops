@@ -1,3 +1,4 @@
+# dags/auto_retrain_pipeline.py
 """Automated retraining control loop (Card 4.4) — close the MLOps loop.
 
 Poller pattern: runs on a short schedule, reads the Card 4.1 drift signal
@@ -27,6 +28,7 @@ from datetime import timedelta
 from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.sdk import dag, task
 
+# Path resolution: DRIFT_STATUS_PATH takes priority over MONITORING_DIR fallback.
 MONITORING_DIR = os.environ.get("MONITORING_DIR", "/app/monitoring")
 DRIFT_STATUS_PATH = os.environ.get(
     "DRIFT_STATUS_PATH",
@@ -37,17 +39,24 @@ RETRAIN_STATE_PATH = os.environ.get(
     f"{MONITORING_DIR}/retrain_state.json",
 )
 
-WATCHED_SCHEMAS = [
-    s.strip() for s in os.environ.get("RETRAIN_SCHEMAS", "3-class").split(",") if s.strip()
-]
-RETRAIN_CATEGORIES = [
-    c.strip()
-    for c in os.environ.get(
-        "RETRAIN_CATEGORIES",
-        "Education & Training,Sports,Shopping & Fashion,Health & Medical",
-    ).split(",")
-    if c.strip()
-]
+# Blank env var must fall back to defaults (not produce an empty list).
+_raw_schemas = os.environ.get("RETRAIN_SCHEMAS", "").strip()
+WATCHED_SCHEMAS = (
+    [s.strip() for s in _raw_schemas.split(",") if s.strip()] if _raw_schemas else ["3-class"]
+)
+
+_raw_categories = os.environ.get("RETRAIN_CATEGORIES", "").strip()
+RETRAIN_CATEGORIES = (
+    [c.strip() for c in _raw_categories.split(",") if c.strip()]
+    if _raw_categories
+    else [
+        "Education & Training",
+        "Sports",
+        "Shopping & Fashion",
+        "Health & Medical",
+    ]
+)
+
 COOLDOWN_HOURS = float(os.environ.get("RETRAIN_COOLDOWN_HOURS", "24"))
 STALE_AFTER_HOURS = float(os.environ.get("RETRAIN_STALE_AFTER_HOURS", "48"))
 POLL_MINUTES = int(os.environ.get("RETRAIN_POLL_MINUTES", "15"))
@@ -101,10 +110,10 @@ def auto_retrain_pipeline():
                 cooldown_hours=COOLDOWN_HOURS,
                 stale_after_hours=STALE_AFTER_HOURS,
             )
-            print(f"[decide] schema={schema} action={d.action.value} reason={d.reason}")
+            print(f"[decide] schema={schema} action={d.action.value} " f"reason={d.reason}")
             if d.persistent_drift:
                 print(f"[PERSISTENT-DRIFT] schema={schema}: {d.reason}")
-                # Persist block flag so it survives scheduler restarts
+                # Persist block flag so it survives scheduler restarts.
                 if schema not in retrain_state or not isinstance(retrain_state[schema], dict):
                     retrain_state[schema] = {}
                 if not retrain_state[schema].get("persistent_drift_blocked"):
@@ -149,31 +158,40 @@ def auto_retrain_pipeline():
         )
         state_path.parent.mkdir(parents=True, exist_ok=True)
         state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
-        print(f"[record_state] cooldown+cursor written for schema={decision['schema']}")
+        print(f"[record_state] cooldown + cursor written for " f"schema={decision['schema']}")
         return decision
 
+    # BLOCKER FIX (PR #40 review — Marco): add fail_when_dag_is_paused=True
+    # and execution_timeout to both TriggerDagRunOperator tasks. Without
+    # these, a paused downstream DAG causes an infinite wait on a fresh
+    # Airflow volume (DAGs are paused by default). The timeouts are generous
+    # but finite; CI/demo environments will not hang.
     trigger_data = TriggerDagRunOperator(
         task_id="trigger_data_pipeline",
         trigger_dag_id="data_pipeline",
         conf={
-            "sample": 0,  # explicit: data_pipeline reads params["sample"] directly
-            "category": "{{ ti.xcom_pull(task_ids='record_state')['category'] }}",
+            "sample": 0,
+            "category": ("{{ ti.xcom_pull(task_ids='record_state')['category'] }}"),
         },
         wait_for_completion=True,
         poke_interval=30,
         reset_dag_run=True,
+        fail_when_dag_is_paused=True,
+        execution_timeout=timedelta(hours=1),
     )
 
     trigger_model = TriggerDagRunOperator(
         task_id="trigger_model_pipeline",
         trigger_dag_id="model_pipeline",
         conf={
-            "schema": "{{ ti.xcom_pull(task_ids='record_state')['schema'] }}",
-            "algorithm": "LogReg",  # explicit: model_pipeline reads params["algorithm"] directly
+            "schema": ("{{ ti.xcom_pull(task_ids='record_state')['schema'] }}"),
+            "algorithm": "LogReg",
         },
         wait_for_completion=True,
         poke_interval=30,
         reset_dag_run=True,
+        fail_when_dag_is_paused=True,
+        execution_timeout=timedelta(hours=2),
     )
 
     recorded = record_state(decide())
