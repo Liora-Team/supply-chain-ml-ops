@@ -31,20 +31,26 @@ production macro-F1).
    pipeline with a real category slice (a new optional `category` param on
    `get_data.load_raw` / `data_pipeline`), NOT by varying row counts.
 
-**Persistent drift after cooldown:** surfaced via logs (`[PERSISTENT-DRIFT]`) and
-a `persistent_drift_blocked` flag — never a tight retrain loop.
+**Persistent drift after cooldown:** a trigger records
+`drift_cleared_since_trigger: false`; the poller flips it to `true` the first time
+Card 4.1 reports `drift_detected: false` for that schema. A fresh drift report after
+the cooldown while the flag is still `false` means retraining did not clear the
+drift: the loop logs `[PERSISTENT-DRIFT]`, sets `persistent_drift_blocked`, and stops
+rotating slices — never a tight retrain loop.
 
 **API adoption:** the API caches the production pipeline in-process (`@lru_cache`).
 After a promotion, `docker compose restart api` serves the new model without
 rebuilding the image (defence: "API serves it, no rebuild"). Card 4.4 does not
 add a reload endpoint and does not give Airflow Docker-socket access.
 
-**Ownership / no shared-file edits:** `retrain_state.json` lives beside
-`drift_status.json` under `monitoring/` (the shared mount Card 4.1/PR #38 owns).
-Card 4.4 does NOT edit `docker-compose.yml`, `Dockerfile`, or
-`monitoring/.gitignore` (owned by PR #38/#39), so merge order between #38/#39/#23
-is unaffected. The control DAG imports only stdlib + `src.retrain` — never
-`monitoring` — so it is unaffected by PR #38's Dockerfile monitoring-copy blocker.
+**Ownership / shared files:** `retrain_state.json` lives beside `drift_status.json`
+under `monitoring/` (the shared mount Card 4.1/PR #38 owns) and is git-ignored there.
+Card 4.4 adds the `RETRAIN_*` / `MONITORING_DIR` / `DRIFT_STATUS_PATH` block to the
+`airflow` service in `docker-compose.yml` (the DAG reads them at parse time) and one
+line to `monitoring/.gitignore`; it does not touch the `Dockerfile`. `monitoring/` is
+copied into the airflow, api and bert images, but the control DAG imports only the
+stdlib + `src.retrain` by choice: the decision module stays free of Airflow and
+Evidently so it is unit-testable in every environment.
 
 **Known limitation (honest scoping):** for the demo, each retrain uses a
 *different, deterministic* category slice ("genuinely sees new data" per the
@@ -57,6 +63,12 @@ Ubuntu and via the docker-compose airflow container, not on native Windows.
 the existing Card 3.2 gate; Card 4.4 does not change the evaluation policy — it
 only changes the training slice. Card 4.4 never forces `drift_status.json` to
 false; the flag clears only when Card 4.1 next evaluates a non-drifted window.
+
+**Drift-reference caveat:** `data_pipeline` runs `dvc add` + `dvc push` on the appended
+`train.csv` before the Card 3.2 gate decides, and `train.csv` is also the drift
+reference (`monitoring/datasets.py`, `REFERENCE_DATA_DIR`). A rejected candidate
+therefore still moves the drift baseline for a production model that never saw those
+rows. Pushing only after promotion is a follow-up.
 
 **Consequences:** deterministic, restart-safe, observable, fully unit-tested
 (`tests/test_retrain_decision.py`) without Airflow, Docker, or network.

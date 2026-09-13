@@ -77,6 +77,16 @@ def data_pipeline():
         # Card 4.4 Option 3: when replaying a category slice, keep test.csv fixed to preserve
         # promotion-gate comparability (Card 3.2). Only train.csv is updated.
         if category is not None:
+            import subprocess
+
+            # A fresh airflow checkout holds only the .dvc pointers (the CSVs are
+            # git-ignored and not baked into the image); fetch the baseline split
+            # before appending to it. Same command model_pipeline uses.
+            subprocess.run(
+                ["dvc", "pull", "data/processed/train.csv.dvc", "data/processed/test.csv.dvc"],
+                cwd="/app",
+                check=True,
+            )
             train_path = append_to_train_only(df)
             return [str(train_path)]
 

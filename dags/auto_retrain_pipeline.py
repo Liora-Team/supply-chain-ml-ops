@@ -12,12 +12,13 @@ that the persistent cooldown/dedupe guard permits. It then:
 
 It never promotes, never writes drift_status.json, never runs training itself.
 All decision logic lives in the pure, unit-tested `src.retrain.decision` module.
-It imports only stdlib + src.retrain (both present in every image target) — never
-`monitoring` (not copied into images; see PR #38 review).
+It imports only stdlib + src.retrain by choice: the decision module stays free of
+Airflow and Evidently so it is unit-testable everywhere (see ADR 006).
 
 Anti-loop proof: a persistent drift cannot retrain forever — the same drift
 timestamp is deduplicated and a cooldown window suppresses further triggers;
-persistent drift after cooldown is surfaced (logged + state flag), not looped.
+persistent drift after cooldown (the drift report never went back to false since
+the last trigger) is surfaced (logged + state flag), not looped.
 """
 
 from __future__ import annotations
@@ -94,7 +95,12 @@ def auto_retrain_pipeline():
 
         from airflow.exceptions import AirflowSkipException
 
-        from src.retrain.decision import Action, evaluate_schema, load_json
+        from src.retrain.decision import (
+            Action,
+            evaluate_schema,
+            load_json,
+            note_drift_cleared,
+        )
 
         drift_status = load_json(Path(DRIFT_STATUS_PATH))
         retrain_state = load_json(Path(RETRAIN_STATE_PATH)) or {}
@@ -111,6 +117,15 @@ def auto_retrain_pipeline():
                 stale_after_hours=STALE_AFTER_HOURS,
             )
             print(f"[decide] schema={schema} action={d.action.value} " f"reason={d.reason}")
+            if d.action is Action.SKIP_NO_DRIFT:
+                # Drift went back to false after a trigger: remember it so the
+                # next post-cooldown drift counts as a new episode, not as
+                # persistent drift.
+                cleared = note_drift_cleared(retrain_state.get(schema))
+                if cleared is not None:
+                    retrain_state[schema] = cleared
+                    state_updated = True
+                    print(f"[decide] schema={schema}: drift cleared since last trigger.")
             if d.persistent_drift:
                 print(f"[PERSISTENT-DRIFT] schema={schema}: {d.reason}")
                 # Persist block flag so it survives scheduler restarts.
@@ -127,7 +142,7 @@ def auto_retrain_pipeline():
             state_path = Path(RETRAIN_STATE_PATH)
             state_path.parent.mkdir(parents=True, exist_ok=True)
             state_path.write_text(json.dumps(retrain_state, indent=2), encoding="utf-8")
-            print("[decide] persistent_drift_blocked flagged as True on disk.")
+            print("[decide] retrain_state.json updated on disk.")
 
         if chosen is None:
             raise AirflowSkipException("No actionable drift under cooldown/dedupe policy.")

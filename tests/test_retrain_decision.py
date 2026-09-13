@@ -7,8 +7,8 @@ machine-checkable proof that the cooldown/dedupe cannot loop.
 Includes the regression test for Marco's PR #40 review correction:
 persistent-drift policy must match Issue #23 / ADR 006 / MAINTENANCE:
   - During cooldown with new drift timestamp -> SKIP_COOLDOWN, persistent_drift=False
-  - After cooldown expires with drift still true -> SKIP_COOLDOWN, persistent_drift=True
-    (only when persistent_drift_blocked flag is set by the DAG)
+  - After cooldown expires with drift never cleared since the trigger
+    (drift_cleared_since_trigger still false) -> SKIP_COOLDOWN, persistent_drift=True
   - Day-0 / Day-3 (clear) / Day-30 (new drift) -> TRIGGER / SKIP_NO_DRIFT / TRIGGER
 """
 
@@ -26,6 +26,7 @@ from src.retrain.decision import (
     evaluate_schema,
     load_json,
     next_category,
+    note_drift_cleared,
 )
 
 CATEGORIES = ["electronics", "clothing", "home", "beauty"]
@@ -291,13 +292,18 @@ def test_day0_trigger_day3_clear_day30_new_trigger():
     assert d3.action is Action.SKIP_NO_DRIFT, f"Day 3 should SKIP_NO_DRIFT, got {d3.action}"
     assert d3.persistent_drift is False
 
+    # The DAG records the clear so the next drift counts as a new episode.
+    cleared = note_drift_cleared(state_after_day0[schema])
+    assert cleared is not None and cleared["drift_cleared_since_trigger"] is True
+    state_after_day0[schema] = cleared
+
     # Day 30: new drift episode -> must TRIGGER (not be blocked as persistent).
     # At day 30:
     #   - cooldown_until (Day 1) is long expired      -> not in active cooldown
     #   - last_handled_drift_ts = Day-0 ts            -> Day-30 ts != Day-0 ts
     #   - dedupe guard passes (different timestamp)
-    #   - persistent_drift_blocked not set (never was)
-    #   -> TRIGGER ✅
+    #   - drift_cleared_since_trigger is True (day 3)  -> not persistent
+    #   -> TRIGGER
     drift_day30 = {
         schema: {
             "status": "ok",
@@ -327,89 +333,102 @@ def test_day0_trigger_day3_clear_day30_new_trigger():
 
 
 def test_drift_never_clears_becomes_persistent_after_cooldown():
-    """Complementary: drift that never clears must block after the DAG flags it.
+    """Drift that never clears must block after the cooldown, without any hand-set flag.
 
-    Correct persistent-drift scenario (Issue #23): retraining fired but did
-    not resolve the drift. The DAG sets persistent_drift_blocked=True. On the
-    next tick, the engine sees the flag and blocks.
-
-    Note: evaluate_schema itself does NOT set persistent_drift_blocked. That
-    responsibility belongs to the DAG's decide() task, which inspects the
-    Decision after each tick and writes the flag to retrain_state.json.
+    Card 4.1 writes a new timestamp every 24 h; cooldown is 24 h.
+      Day 0: drift=True  -> TRIGGER (state: drift_cleared_since_trigger=False).
+      Day 1: drift=True, new ts, inside cooldown -> SKIP_COOLDOWN, persistent=False.
+      Day 2: drift=True, new ts, cooldown expired, never cleared
+             -> SKIP_COOLDOWN, persistent=True (the DAG then persists the block).
     """
     day_0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
-    day_30 = day_0 + timedelta(days=30)
-
-    categories = CATEGORIES
     schema = "3-class"
 
-    # Day 0: trigger.
-    drift_day0 = {
-        schema: {
-            "status": "ok",
-            "drift_detected": True,
-            "timestamp": day_0.isoformat(),
-            "n_rows": 300,
-            "window_start": (day_0 - timedelta(hours=24)).isoformat(),
-            "window_end": day_0.isoformat(),
-            "report_path": "monitoring/reports/drift_report_3class.html",
+    def drift_at(day):
+        return {
+            schema: {
+                "status": "ok",
+                "drift_detected": True,
+                "timestamp": day.isoformat(),
+                "n_rows": 300,
+                "window_start": (day - timedelta(hours=24)).isoformat(),
+                "window_end": day.isoformat(),
+                "report_path": "monitoring/reports/drift_report_3class.html",
+            }
         }
-    }
-    d0 = evaluate_schema(
-        schema,
-        drift_day0,
-        None,
-        categories=categories,
-        cooldown_hours=COOLDOWN_HOURS,
-        stale_after_hours=STALE_HOURS * 30,
-        now=day_0,
-    )
+
+    def run(day, state):
+        return evaluate_schema(
+            schema,
+            drift_at(day),
+            state,
+            categories=CATEGORIES,
+            cooldown_hours=COOLDOWN_HOURS,
+            stale_after_hours=STALE_HOURS,
+            now=day,
+        )
+
+    d0 = run(day_0, None)
     assert d0.action is Action.TRIGGER
-
-    # DAG persists state + sets persistent_drift_blocked=True after
-    # determining that the day-30 drift (new ts) means retraining failed.
     state = {
-        schema: {
-            **build_triggered_state(
-                schema,
-                d0.category,
-                d0.slice_cursor,
-                d0.drift_timestamp,
-                cooldown_hours=COOLDOWN_HOURS,
-                now=day_0,
-            ),
-            # The DAG sets this flag when it detects persistent drift.
-            "persistent_drift_blocked": True,
-        }
+        schema: build_triggered_state(
+            schema,
+            d0.category,
+            d0.slice_cursor,
+            d0.drift_timestamp,
+            cooldown_hours=COOLDOWN_HOURS,
+            now=day_0,
+        )
     }
+    assert state[schema]["drift_cleared_since_trigger"] is False
 
-    # Day 30: drift still true (new timestamp), DAG has flagged persistent.
-    drift_day30 = {
-        schema: {
-            "status": "ok",
-            "drift_detected": True,
-            "timestamp": day_30.isoformat(),
-            "n_rows": 300,
-            "window_start": (day_30 - timedelta(hours=24)).isoformat(),
-            "window_end": day_30.isoformat(),
-            "report_path": "monitoring/reports/drift_report_3class.html",
+    # Day 1 (+23 h): new report, still inside the cooldown -> suppressed, not persistent.
+    d1 = run(day_0 + timedelta(hours=23), state)
+    assert d1.action is Action.SKIP_COOLDOWN
+    assert d1.persistent_drift is False
+
+    # Day 2: cooldown expired, new timestamp, drift never went to false -> persistent.
+    d2 = run(day_0 + timedelta(days=2), state)
+    assert d2.action is Action.SKIP_COOLDOWN, f"expected persistent block, got {d2.action}"
+    assert d2.persistent_drift is True
+    assert "never cleared" in d2.reason
+
+    # The DAG persists the block; the engine keeps honouring it on later ticks.
+    state[schema]["persistent_drift_blocked"] = True
+    d3 = run(day_0 + timedelta(days=3), state)
+    assert d3.action is Action.SKIP_COOLDOWN
+    assert d3.persistent_drift is True
+
+
+def test_operator_reset_reenables_trigger_after_persistent_block():
+    """MAINTENANCE reset: blocked=false AND cleared=true lets a fresh drift trigger again."""
+    state = {
+        "3-class": {
+            **build_triggered_state(
+                "3-class",
+                "electronics",
+                0,
+                (NOW - timedelta(days=5)).isoformat(),
+                cooldown_hours=COOLDOWN_HOURS,
+                now=NOW - timedelta(days=5),
+            ),
+            "persistent_drift_blocked": False,
+            "drift_cleared_since_trigger": True,
         }
     }
-    d30 = evaluate_schema(
-        schema,
-        drift_day30,
-        state,
-        categories=categories,
-        cooldown_hours=COOLDOWN_HOURS,
-        stale_after_hours=STALE_HOURS * 30,
-        now=day_30,
-    )
-    assert (
-        d30.action is Action.SKIP_COOLDOWN
-    ), f"Drift that never cleared should be blocked, got {d30.action}"
-    assert (
-        d30.persistent_drift is True
-    ), "Drift that never cleared after cooldown must set persistent_drift=True"
+    d = _eval(_drift(ts=NOW), state)
+    assert d.action is Action.TRIGGER
+    assert d.category == "clothing"  # cursor advanced by the earlier trigger
+
+
+def test_note_drift_cleared_transitions():
+    assert note_drift_cleared(None) is None
+    assert note_drift_cleared({}) is None  # never triggered -> nothing to record
+    assert note_drift_cleared({"drift_cleared_since_trigger": True}) is None
+    entry = {"cooldown_until": "x", "drift_cleared_since_trigger": False}
+    updated = note_drift_cleared(entry)
+    assert updated == {"cooldown_until": "x", "drift_cleared_since_trigger": True}
+    assert entry["drift_cleared_since_trigger"] is False  # input not mutated
 
 
 # ---------------------------------------------------------------------------
@@ -430,6 +449,8 @@ def test_build_triggered_state_starts_cooldown_and_advances_cursor():
     assert new["last_category_used"] == "electronics"
     assert new["last_handled_drift_ts"] == NOW.isoformat()
     assert datetime.fromisoformat(new["cooldown_until"]) == NOW + timedelta(hours=COOLDOWN_HOURS)
+    assert new["drift_cleared_since_trigger"] is False
+    assert new["persistent_drift_blocked"] is False
 
 
 def test_category_rotation_wraps():

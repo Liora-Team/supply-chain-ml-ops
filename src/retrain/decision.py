@@ -17,7 +17,8 @@ Answers to the Issue #23 cooldown questions:
     * Survives restarts?             yes, on disk, not in memory.
     * Same event vs new event?       compare drift `timestamp` to
                                      `last_handled_drift_ts` (edge detection).
-    * Drift persists after cooldown? flag `persistent_drift`, surface it, no loop.
+    * Drift persists after cooldown? `drift_cleared_since_trigger` stays false
+                                     -> flag `persistent_drift`, surface it, no loop.
     * Retrain on every tick?         impossible: dedupe + cooldown both block it.
 """
 
@@ -123,19 +124,22 @@ def evaluate_schema(
 
     Precedence (safest first):
       missing/malformed -> insufficient_data -> no-drift -> stale ->
-      already-handled -> persistent-block -> cooldown -> TRIGGER.
+      already-handled -> persistent-block -> cooldown -> never-cleared -> TRIGGER.
 
     Persistent-drift policy (Issue #23 / ADR 006 / MAINTENANCE):
+      - A trigger writes `drift_cleared_since_trigger: false` to the state
+        (see `build_triggered_state`). The DAG flips it to true the first
+        time it sees SKIP_NO_DRIFT for that schema (see `note_drift_cleared`).
       - During active cooldown with a new drift timestamp:
-        SKIP_COOLDOWN, persistent_drift=False.
-        A new timestamp during the cooldown window is expected (Card 4.1
-        runs every 24 h; cooldown is also 24 h). Flagging it persistent
-        here would permanently disable the loop after the first retrain.
-      - persistent_drift_blocked flag set by the DAG (operator action
-        required): SKIP_COOLDOWN, persistent_drift=True.
-      - New drift episode after cooldown expires (drift cleared then
-        re-appeared): TRIGGER, persistent_drift=False. This is the
-        Day-0/Day-3/Day-30 scenario from PR #40 review.
+        SKIP_COOLDOWN, persistent_drift=False. A new timestamp inside the
+        window is expected (Card 4.1 runs every 24 h; cooldown is also 24 h).
+      - Cooldown expired, new timestamp, but the drift report never went
+        to false since the last trigger: SKIP_COOLDOWN, persistent_drift=True
+        (retraining did not clear the drift). The DAG then persists
+        `persistent_drift_blocked` so the block survives an operator edit
+        of the drift file; operator reset is documented in MAINTENANCE.
+      - Cooldown expired and drift cleared in between (Day-0 / Day-3 /
+        Day-30 scenario from the PR #40 review): TRIGGER, persistent_drift=False.
     """
     now = now or _now()
 
@@ -234,16 +238,24 @@ def evaluate_schema(
             reason=f"cooldown active until {cooldown_until.isoformat()}",
         )
 
-    # Cooldown has expired (or no prior cooldown) AND this is a new drift
-    # timestamp (dedupe guard above confirmed it differs from the last
-    # handled one). This means either:
-    #   a) first-ever trigger for this schema (no prior state), or
-    #   b) drift cleared after the last retrain and has now re-appeared
-    #      with a new timestamp (Day-30 scenario from PR #40 review).
-    # Both cases are new episodes that must TRIGGER.
-    # The DAG is responsible for setting persistent_drift_blocked if it
-    # determines that retraining did not clear the drift (separate path
-    # via the decide task inspecting persistent_drift on a later tick).
+    # Cooldown has expired and this is a new drift timestamp. If the drift
+    # report never went to false since the last trigger, retraining did not
+    # clear the drift: block instead of rotating categories forever.
+    if state_entry.get("drift_cleared_since_trigger") is False:
+        return Decision(
+            Action.SKIP_COOLDOWN,
+            schema=schema,
+            drift_timestamp=drift_ts_raw,
+            persistent_drift=True,
+            reason=(
+                "drift never cleared since the last retrain "
+                f"(triggered_at={state_entry.get('triggered_at')}); "
+                "operator attention required"
+            ),
+        )
+
+    # First-ever trigger for this schema, or drift cleared after the last
+    # retrain and has now re-appeared (Day-30 scenario): a new episode.
     cursor = int(state_entry.get("slice_cursor", 0))
     category, _ = next_category(categories, cursor)
     return Decision(
@@ -281,4 +293,22 @@ def build_triggered_state(
         # Reset the persistent block on a new trigger so a later recovery
         # is possible.
         "persistent_drift_blocked": False,
+        # Flipped to True by note_drift_cleared() the first time the drift
+        # report goes back to false; still False after the cooldown means
+        # retraining did not clear the drift (persistent).
+        "drift_cleared_since_trigger": False,
     }
+
+
+def note_drift_cleared(state_entry: dict | None) -> dict | None:
+    """Return the state entry updated with `drift_cleared_since_trigger: True`.
+
+    Called by the DAG when `evaluate_schema` returns SKIP_NO_DRIFT. Returns
+    None when nothing needs writing (no prior trigger, or already cleared),
+    so callers only touch the state file on an actual transition.
+    """
+    if not isinstance(state_entry, dict):
+        return None
+    if state_entry.get("drift_cleared_since_trigger") is not False:
+        return None
+    return {**state_entry, "drift_cleared_since_trigger": True}

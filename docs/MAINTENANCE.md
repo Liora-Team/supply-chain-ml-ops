@@ -178,6 +178,13 @@ macOS/Linux: `cat monitoring/retrain_state.json`
 Airflow UI -> `auto_retrain_pipeline` -> Trigger. To seed a signal without
 Card 4.1: `python scripts/seed_drift_status.py --drift`.
 
+Prerequisite: the baseline split must be present. `data_pipeline` runs
+`dvc pull data/processed/train.csv.dvc data/processed/test.csv.dvc` before appending a
+category slice, so the airflow container needs the DagsHub credentials from `.env`
+(`DAGSHUB_TOKEN`); on the host, `make pull` does the same. Note that the appended
+`train.csv` is dvc-pushed before the promotion gate decides, so a rejected candidate
+still moves the drift reference (ADR 006).
+
 ### How promotion works
 The DAG triggers `data_pipeline` (next slice) then `model_pipeline`. The Card 3.2
 gate (`src/promotion.py`, strict candidate > production macro-F1) is the SOLE
@@ -189,13 +196,16 @@ The API caches the production pipeline (`@lru_cache`). After a promotion, run
 image**.
 
 ### Persistent drift after cooldown
-If drift remains `true` after the cooldown window expires (i.e., a fresh drift report arrives
-after `cooldown_until`), the loop logs `[PERSISTENT-DRIFT]` and sets
-`persistent_drift_blocked=true` in `monitoring/retrain_state.json` to prevent a tight retraining loop.
-This requires operator attention.
+A trigger writes `drift_cleared_since_trigger: false` for the schema. The poller flips it to
+`true` the first time the drift report goes back to `drift_detected: false`. If a fresh drift
+report arrives after `cooldown_until` while the key is still `false`, retraining did not clear
+the drift: the loop logs `[PERSISTENT-DRIFT]` and sets `persistent_drift_blocked: true` in
+`monitoring/retrain_state.json` to prevent a tight retraining loop. This requires operator
+attention (the slice rotation stops; check the Evidently report and the data slice).
 
-To resume automated retraining after investigation, edit `monitoring/retrain_state.json` and set
-`persistent_drift_blocked` to `false` (or remove the key).
+To resume automated retraining after investigation, edit `monitoring/retrain_state.json` and
+set `persistent_drift_blocked` to `false` **and** `drift_cleared_since_trigger` to `true`
+(or delete the schema's entry; that also resets `slice_cursor`).
 
 ### Known limitations
 - Airflow is Linux-only (POSIX); the loop runs in the docker-compose airflow
