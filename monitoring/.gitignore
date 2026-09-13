@@ -3,4 +3,5 @@ request_store.db
 request_store.db-wal
 request_store.db-shm
 drift_status.json
+retrain_state.json
 reports/
