@@ -170,8 +170,8 @@ if mlflow_uri:
     st.success(f"Tracking URI: {mlflow_uri}")
 else:
     st.info(
-        "MLFLOW_TRACKING_URI is not set — experiment tracking lands with "
-        "Cards 2.1 / 2.4. Runs would fall back to a local `mlruns/` directory."
+        "MLFLOW_TRACKING_URI is not set — runs fall back to a local `mlruns/` directory. "
+        "Set it to the DagsHub endpoint or the compose MLflow service to track remotely."
     )
 
 with st.expander("Environment / config"):
@@ -185,19 +185,21 @@ with st.expander("Environment / config"):
 
 st.divider()
 
-# Deep links — one home per tool; greyed until its phase lands.
+# Deep links — one home per tool. Defaults target the local compose stack (nginx on
+# https://localhost, Airflow published on 127.0.0.1:8080); each is overridable via
+# OPS_*_URL so the page works against a remote deployment too. MLflow follows the
+# tracking URI the API uses, falling back to the compose MLflow service.
 st.subheader("Tools")
-t1, t2, t3, t4 = st.columns(4)
-t1.link_button("API docs", "http://localhost:8000/docs", width="stretch")
-mlflow_url = mlflow_uri if mlflow_uri and mlflow_uri.startswith("http") else "http://localhost"
-t2.link_button(
-    "MLflow",
-    mlflow_url,
-    disabled=not (mlflow_uri and mlflow_uri.startswith("http")),
-    width="stretch",
-)
-t3.link_button("Airflow", "http://localhost", disabled=True, width="stretch")
-t4.link_button("Grafana", "http://localhost", disabled=True, width="stretch")
+_mlflow_env = mlflow_uri if mlflow_uri and mlflow_uri.startswith("http") else None
+TOOL_LINKS = {  # `or` so a blank OPS_*_URL in .env still yields the default
+    "API docs": os.environ.get("OPS_API_DOCS_URL") or "https://localhost/docs",
+    "MLflow": os.environ.get("OPS_MLFLOW_URL") or _mlflow_env or "https://localhost/mlflow/",
+    "Airflow": os.environ.get("OPS_AIRFLOW_URL") or "http://127.0.0.1:8080",
+    "Grafana": os.environ.get("OPS_GRAFANA_URL") or "https://localhost/grafana/d/mlops-overview/",
+}
+for col, (label, url) in zip(st.columns(4), TOOL_LINKS.items(), strict=True):
+    col.link_button(label, url, width="stretch")
 st.caption(
-    "MLflow enables once a tracking URI is set; Airflow arrives in Phase 3, Grafana in Phase 4."
+    "Defaults target the local compose stack (`make up`, `make dag-up`); "
+    "override with OPS_API_DOCS_URL / OPS_MLFLOW_URL / OPS_AIRFLOW_URL / OPS_GRAFANA_URL."
 )
