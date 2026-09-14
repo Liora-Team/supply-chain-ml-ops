@@ -199,7 +199,3 @@ TOOL_LINKS = {  # `or` so a blank OPS_*_URL in .env still yields the default
 }
 for col, (label, url) in zip(st.columns(4), TOOL_LINKS.items(), strict=True):
     col.link_button(label, url, width="stretch")
-st.caption(
-    "Defaults target the local compose stack (`make up`, `make dag-up`); "
-    "override with OPS_API_DOCS_URL / OPS_MLFLOW_URL / OPS_AIRFLOW_URL / OPS_GRAFANA_URL."
-)
